@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 license = "MIT"
 license-files = [
   "LICENSE",
-  "THIRD_PARTY_LICENSES.txt"
 ]
 authors = [
   { name = "cavyion" }

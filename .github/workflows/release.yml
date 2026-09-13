@@ -213,6 +213,7 @@ jobs:
       - name: Build executable
         shell: bash
         run: |
+          python scripts/generate_licenses.py -o THIRD_PARTY_LICENSES.txt
           python -c "from pathlib import Path; Path('yaatv_launcher.py').write_text('from yaatv.cli import main\nraise SystemExit(main())\n', encoding='utf-8')"
           separator=":"
           if [[ "$RUNNER_OS" == "Windows" ]]; then

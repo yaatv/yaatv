@@ -206,8 +206,16 @@ yaatv --scry
 
 ## License
 
-yaatv is MIT licensed. Release ZIPs include `LICENSE`,
-`THIRD_PARTY_LICENSES.txt`, and `FFMPEG_BUILD_INFO.txt`.
+yaatv is MIT licensed. Standalone release ZIPs include `LICENSE`,
+`THIRD_PARTY_LICENSES.txt` (generated for bundled binary dependencies), and
+`FFMPEG_BUILD_INFO.txt`.
+
+### Third-party dependencies
+
+| Package | License | Purpose | Source |
+|---|---|---|---|
+| [`mutagen`](https://github.com/quodlibet/mutagen) | GPL-2.0-or-later | Audio metadata and tag reading | [PyPI](https://pypi.org/project/mutagen/) |
+| [`Pillow`](https://github.com/python-pillow/Pillow) | MIT-CMU / HPND | Cover art dimensions and validation | [PyPI](https://pypi.org/project/pillow/) |
 
 ## Development
 

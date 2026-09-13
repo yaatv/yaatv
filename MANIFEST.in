@@ -1,5 +1,3 @@
-include THIRD_PARTY_LICENSES.txt
-
 prune assets
 
 global-exclude __pycache__
