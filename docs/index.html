@@ -6,9 +6,8 @@
     <meta
       name="description"
       content="yaatv makes a YouTube-ready MP4 from one audio file and one static cover image for music, ASMR, podcasts, and other audio uploads."
-    >
-    <meta name="theme-color" content="#07110f">
-    <link rel="canonical" href="https://yaatv.org/">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e4eaf0">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101a28">
     <meta property="og:site_name" content="yaatv">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://yaatv.org/">
@@ -93,7 +92,8 @@
           <li>Default output is a YouTube-ready MP4.</li>
           <li><code>.mov</code> output writes ProRes MOV.</li>
           <li><code>--aspect</code> supports 16:9, square, and 9:16.</li>
-          <li>Cover art is padded, not stretched.</li>
+          <li>Extracts embedded album art automatically if cover image is omitted.</li>
+          <li>Cover art is padded, not stretched (supports <code>--bg-blur</code>, <code>--bg-color</code>, or <code>--black</code>).</li>
         </ul>
 
         <h2>Download</h2>

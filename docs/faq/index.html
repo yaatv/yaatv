@@ -7,7 +7,8 @@
       name="description"
       content="Answers to common yaatv questions about YouTube uploads, FFmpeg setup, output size, aspect ratio, cover art, ProRes MOV files, and drag-and-drop mode."
     >
-    <meta name="theme-color" content="#07110f">
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#e4eaf0">
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#101a28">
     <link rel="canonical" href="https://yaatv.org/faq/">
     <meta property="og:site_name" content="yaatv">
     <meta property="og:type" content="website">
@@ -78,7 +79,15 @@
             "name": "Why add padding around cover art?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "yaatv preserves the image aspect ratio. It pads the frame instead of stretching the cover image."
+              "text": "yaatv preserves the image aspect ratio. It pads the frame instead of stretching the cover image. You can also use --bg-blur to blur the artwork across the background canvas, --bg-color for a custom solid color, or --bg-image for a backdrop image."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "Can I customize or blur the background?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Use --bg-blur to blur the cover art across the background canvas, --bg-color for a solid color (or --black), and --bg-image to specify a custom backdrop image."
             }
           },
           {
@@ -102,7 +111,7 @@
             "name": "What audio and image files work?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "yaatv accepts common audio files such as WAV, FLAC, MP3, M4A or AAC, OGG, and Opus. Cover art should be a static JPG, PNG, or WebP image. Animated images are rejected."
+              "text": "yaatv accepts common audio files such as WAV, FLAC, MP3, M4A or AAC, OGG, and Opus. Cover art should be a static JPG, PNG, or WebP image. If no cover image is provided, yaatv automatically extracts embedded album art from FLAC, MP3, or M4A files."
             }
           },
           {
@@ -184,7 +193,14 @@
           <h2>Why add padding around cover art?</h2>
           <p>
             yaatv preserves the image aspect ratio. It pads the frame instead of stretching the cover image. By
-            default, the padding is black.
+            default, the padding is black. You can also use <code>--bg-blur</code> to blur the artwork across the background canvas, <code>--bg-color</code> for a custom solid color, or <code>--bg-image</code> for a backdrop image.
+          </p>
+        </article>
+
+        <article class="faq-item">
+          <h2>Can I customize or blur the background?</h2>
+          <p>
+            Yes. Use <code>--bg-blur</code> to blur the cover art across the background canvas, <code>--bg-color</code> for a solid color (or <code>--black</code>), and <code>--bg-image</code> to specify a custom backdrop image.
           </p>
         </article>
 
@@ -208,7 +224,7 @@
           <h2>What audio and image files work?</h2>
           <p>
             yaatv accepts common audio files such as WAV, FLAC, MP3, M4A or AAC, OGG, and Opus. Cover art should be a
-            static JPG, PNG, or WebP image. Animated images are rejected.
+            static JPG, PNG, or WebP image. Animated images are rejected. If you omit the cover image, yaatv automatically extracts embedded album art from FLAC, MP3, or M4A files when available.
           </p>
         </article>
 
