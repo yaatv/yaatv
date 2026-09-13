@@ -1,6 +1,6 @@
 # Contributing to yaatv
 
-yaatv is a small CLI focused on YouTube-ready audio videos. The best way to help is to send one reproducible report or one focused patch at a time.
+yaatv is a small CLI focused on YouTube-ready audio videos. The best way to help is to send clear bug reports or cohesive pull requests.
 
 - [Opening an issue](#opening-an-issue)
 - [AI and automated tools policy](#ai-and-automated-tools-policy)
@@ -47,8 +47,8 @@ Using AI tools (such as Copilot, ChatGPT, or code assistants) to research, draft
 
 Getting started with a contribution follows a straightforward flow:
 
-1. **Find or claim an issue**:
-   Check open issues and existing pull requests first. Leave a comment on the issue you plan to address before starting work so others know it is claimed and to avoid duplicate PRs.
+1. **Find and claim an issue**:
+   Check open issues and existing pull requests first to avoid duplicate work. Leave a comment on the issue you plan to address so others know you are working on it. If a claimed issue sees no update or draft PR within 7 days, it becomes open for others to take up.
 2. **Fork and clone**:
    ```sh
    git clone https://github.com/<your-username>/yaatv.git
@@ -108,18 +108,18 @@ Some tests require FFmpeg and FFprobe to be available.
 ## Pull requests
 
 Before opening a PR:
-
+ 
 - Check open pull requests to ensure someone else hasn't already submitted a fix for the same issue.
-- Comment on the issue to claim it before starting work. If an issue is already claimed or has an active PR, coordinate on the issue thread first.
-- Open an issue first for large features, behavior changes, packaging changes, or architecture changes.
-- Keep the PR focused on one change.
+- Leave a comment on the issue you are tackling so others know it is in progress.
+- Keep the PR cohesive around a single feature, bugfix, or maintenance task. Bundling related unit tests, documentation, and cleanup in the same PR is encouraged.
+- For substantial architecture changes or new CLI commands, consider opening an issue or discussion first to align on direction before writing code.
 - Add or update tests for behavior changes.
 - Update README or docs when user-facing behavior changes.
 - Do not commit generated build outputs, local media files, virtual environments, secrets, or machine-specific files.
-- Do not edit CONTRIBUTORS.md in your PR. Maintainers add contributors upon merge.
-- Run the checks you can run locally.
-
-If a PR is unclear, too broad, untested, or unrelated to yaatv, it may be closed or split.
+- Feel free to add your GitHub username to `CONTRIBUTORS` in your PR.
+- Run the checks you can run locally (`python scripts/check.py --fast`).
+ 
+ If a PR is unclear, untested, or unrelated to yaatv, maintainers will provide feedback to help shape or split it.
 
 ### Merging and credit
 
@@ -163,15 +163,14 @@ After stable 1.0:
 
 Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README publishing example in sync. The release workflow refuses tag builds when `vX.Y.Z` does not match `pyproject.toml`.
 
-### Release checks
+### Windows Defender and SmartScreen false positives
 
-For Windows release assets, submit `yaatv.exe` to Microsoft Security Intelligence after the release is published:
+Because standalone release binaries are generated with PyInstaller without a commercial code-signing certificate, Windows Defender or SmartScreen may occasionally flag new releases until download reputation accumulates.
 
-[Submit Windows release assets to Microsoft Security Intelligence](https://www.microsoft.com/en-us/wdsi/filesubmission)
+If a new Windows release triggers false positives, submit `yaatv.exe` for analysis:
 
-It is also best to do a VirusTotal scan, though false positives are fine and an expected behaviour.
-
-[Upload to VirusTotal](https://www.virustotal.com/gui/home/upload)
+- [Microsoft Security Intelligence file submission](https://www.microsoft.com/en-us/wdsi/filesubmission)
+- [VirusTotal file scan](https://www.virustotal.com/gui/home/upload)
 
 ### Tags
 
