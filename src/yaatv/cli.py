@@ -26,6 +26,11 @@ from PIL import Image, ImageColor, UnidentifiedImageError
 
 from . import __version__
 
+# ---------------------------------------------------------------------------
+# 1. Constants and presets
+# Supported resolutions, aspect ratios, bitrate thresholds, and tool URLs.
+# ---------------------------------------------------------------------------
+
 DEFAULT_ASPECT = "16:9"
 RESOLUTIONS = {
     "1080p": (1920, 1080),
@@ -116,6 +121,12 @@ MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 = "135e70d2518beeb568183952dbc4bdeca1628dd49a
 UNIX_FFMPEG_TOOLS = ("ffmpeg", "ffprobe")
 
 
+# ---------------------------------------------------------------------------
+# 2. Data models and exceptions
+# Dataclasses and custom exception types used across the processing pipeline.
+# ---------------------------------------------------------------------------
+
+
 class YaatvError(Exception):
     """An expected user-facing failure."""
 
@@ -161,6 +172,12 @@ class ToolHealth:
     state: str  # one of: "missing", "blocked", "failed", "ok"
     version: str | None = None
     detail: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# 3. CLI argument parsing and validation
+# Argument parsing, option groups, and custom type validators.
+# ---------------------------------------------------------------------------
 
 
 def pad_seconds(value: str) -> float:
@@ -220,12 +237,20 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
   yaatv --scry""",
     )
     parser.add_argument(
+        "files",
+        nargs="*",
+        type=Path,
+        help="Audio and image files for drag-and-drop mode (exactly 2 files required)",
+    )
+
+    media_group = parser.add_argument_group("media inputs")
+    media_group.add_argument(
         "-a",
         "--audio",
         type=Path,
         help="Path to audio file (required unless using --install-ffmpeg, --scry, or positional files)",
     )
-    parser.add_argument(
+    media_group.add_argument(
         "-i",
         "--image",
         type=Path,
@@ -234,94 +259,97 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "--scry, positional files, or color-only output)"
         ),
     )
-    parser.add_argument(
-        "-b",
-        "--bg-image",
-        type=Path,
-        help="Path to background image",
-    )
-    parser.add_argument(
-        "--bg-color",
-        default=DEFAULT_BACKGROUND_COLOR,
-        type=background_color,
-        help="Background color as #RRGGBB or a named CSS color",
-    )
-    parser.add_argument(
-        "--bg-blur",
-        action="store_true",
-        help="Use a blurred copy of the cover image as the background",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        type=Path,
-        help="Output path (.mp4 or .mov; default: [Artist] - [Title].mp4; .mov writes ProRes MOV)",
-    )
-    parser.add_argument(
-        "--output-dir",
-        type=Path,
-        help="Directory for the default output filename",
-    )
-    parser.add_argument(
+
+    canvas_group = parser.add_argument_group("canvas and background")
+    canvas_group.add_argument(
         "--resolution",
         choices=tuple(RESOLUTIONS),
         default="1080p",
         help="Output resolution: 1080p, 1440p, or 4k",
     )
-    parser.add_argument(
+    canvas_group.add_argument(
         "--aspect",
         choices=tuple(OUTPUT_SIZES),
         default=DEFAULT_ASPECT,
         help="Output aspect ratio: 16:9, square, or 9:16",
     )
-    parser.add_argument(
+    canvas_group.add_argument(
+        "--bg-color",
+        default=DEFAULT_BACKGROUND_COLOR,
+        type=background_color,
+        help="Background color as #RRGGBB or a named CSS color",
+    )
+    canvas_group.add_argument(
+        "--bg-blur",
+        action="store_true",
+        help="Use a blurred copy of the cover image as the background",
+    )
+    canvas_group.add_argument(
+        "-b",
+        "--bg-image",
+        type=Path,
+        help="Path to background image",
+    )
+
+    output_group = parser.add_argument_group("output options")
+    output_group.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="Output path (.mp4 or .mov; default: [Artist] - [Title].mp4; .mov writes ProRes MOV)",
+    )
+    output_group.add_argument(
+        "--output-dir",
+        type=Path,
+        help="Directory for the default output filename",
+    )
+    output_group.add_argument(
         "--pad",
         default=0.0,
         type=pad_seconds,
         help="Seconds of silence to pad at the end (default: 0, max: 10)",
     )
-    parser.add_argument(
-        "--no-warn",
-        action="store_true",
-        help="Suppress low source quality warnings",
-    )
-    parser.add_argument(
+
+    exec_group = parser.add_argument_group("execution controls")
+    exec_group.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the FFmpeg command without creating an output file",
     )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Show raw FFmpeg output while encoding",
-    )
-    parser.add_argument(
+    exec_group.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite an existing output file without prompting",
     )
-    parser.add_argument(
+    exec_group.add_argument(
         "--open-folder",
         action="store_true",
         help="Open the output folder after a successful encode",
     )
-    parser.add_argument(
+    exec_group.add_argument(
+        "--no-warn",
+        action="store_true",
+        help="Suppress low source quality warnings",
+    )
+    exec_group.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show raw FFmpeg output while encoding",
+    )
+
+    system_group = parser.add_argument_group("system and diagnostics")
+    system_group.add_argument(
         "--install-ffmpeg",
         action="store_true",
         help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
     )
-    parser.add_argument(
+    system_group.add_argument(
         "--scry",
         action="store_true",
         help="Check yaatv, FFmpeg, FFprobe, and output directory setup",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument(
-        "files",
-        nargs="*",
-        type=Path,
-        help="Audio and image files for drag-and-drop mode (exactly 2 files required)",
-    )
+    system_group.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+
     args = parser.parse_args(argv_list)
     args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
     if args.install_ffmpeg and args.scry:
@@ -334,6 +362,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "remove --bg-color or choose a different background mode."
         )
     return args
+
+
+# ---------------------------------------------------------------------------
+# 4. Input classification and tool discovery
+# Canvas presets, drag-and-drop file detection, and finding FFmpeg/FFprobe.
+# ---------------------------------------------------------------------------
 
 
 def output_size(resolution: str, aspect: str) -> tuple[int, int]:
@@ -544,6 +578,12 @@ def resolve_ffmpeg_tools(
         )
 
 
+# ---------------------------------------------------------------------------
+# 5. System environment and diagnostics (--scry)
+# Environment health inspection and scry diagnostic reporting.
+# ---------------------------------------------------------------------------
+
+
 def run_scry(stderr: TextIO = sys.stderr) -> int:
     failure = False
     app_bin_dir: Path | None
@@ -670,6 +710,12 @@ def current_directory_is_writable() -> bool:
             return True
     except OSError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# 6. Managed FFmpeg installation (--install-ffmpeg)
+# Platform-specific download, checksum verification, extraction, and rollback.
+# ---------------------------------------------------------------------------
 
 
 def install_ffmpeg(
@@ -983,6 +1029,12 @@ def _find_zip_tool_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.Z
     return sorted(candidates, key=lambda member: (member.filename.count("/"), member.filename))[0]
 
 
+# ---------------------------------------------------------------------------
+# 7. Media probing and metadata extraction
+# Mutagen audio tag reading, embedded cover art, and Pillow image validation.
+# ---------------------------------------------------------------------------
+
+
 def validate_image(path: Path, label: str = "Cover image") -> tuple[int, int]:
     try:
         with Image.open(path) as image:
@@ -1191,6 +1243,12 @@ def _normalize_tag(value: object) -> str | None:
     return result or None
 
 
+# ---------------------------------------------------------------------------
+# 8. Audio planning, quality warnings, and output naming
+# Codec inspection, bitrate warnings, and sanitized output path generation.
+# ---------------------------------------------------------------------------
+
+
 def default_output_path(audio_path: Path, metadata: AudioMetadata) -> Path:
     if metadata.artist and metadata.title:
         name = f"{metadata.artist} - {metadata.title}"
@@ -1299,6 +1357,12 @@ def input_format_warnings(audio_path: Path, image_path: Path | None, bg_image_pa
     if bg_image_path is not None and bg_image_path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS:
         warnings.append(f"background image extension is unusual: {bg_image_path.suffix or '(none)'}")
     return warnings
+
+
+# ---------------------------------------------------------------------------
+# 9. FFmpeg command and filtergraph construction
+# Building structured command arguments and video/audio filtergraphs.
+# ---------------------------------------------------------------------------
 
 
 def _video_format(is_prores: bool) -> str:
@@ -1585,6 +1649,12 @@ def build_ffmpeg_command(
     ]
 
 
+# ---------------------------------------------------------------------------
+# 10. Subprocess execution and output verification
+# Executing FFmpeg, streaming progress, and verifying encoded outputs.
+# ---------------------------------------------------------------------------
+
+
 def confirm_overwrite(path: Path, stdin: TextIO, stderr: TextIO, *, overwrite: bool = False) -> bool:
     if overwrite:
         return True
@@ -1826,6 +1896,12 @@ def open_output_folder(output_path: Path, stderr: TextIO) -> None:
         print(f"warning: could not open output folder: {exc}", file=stderr)
 
 
+# ---------------------------------------------------------------------------
+# 11. Summary reporting and display formatting
+# Terminal output formatting for durations, file sizes, and media stream stats.
+# ---------------------------------------------------------------------------
+
+
 def format_file_details(output_path: Path, duration: float | None) -> str | None:
     details: list[str] = []
     try:
@@ -1919,6 +1995,12 @@ def _sample_rate_label(sample_rate: int | None) -> str:
     if sample_rate % 1000 == 0:
         return f"{sample_rate // 1000}kHz"
     return f"{sample_rate}Hz"
+
+
+# ---------------------------------------------------------------------------
+# 12. Main workflow orchestration and entrypoints
+# Top-level execution flow, drag-and-drop support, and console entrypoints.
+# ---------------------------------------------------------------------------
 
 
 def run(
