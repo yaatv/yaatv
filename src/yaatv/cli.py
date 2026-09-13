@@ -85,6 +85,7 @@ WINDOWS_RESERVED_FILENAMES = {
     *(f"COM{index}" for index in range(1, 10)),
     *(f"LPT{index}" for index in range(1, 10)),
 }
+MAX_FILENAME_LENGTH = 200
 FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
 FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
 TOOL_HEALTH_TIMEOUT_SECONDS = 5
@@ -1202,9 +1203,16 @@ def default_output_path(audio_path: Path, metadata: AudioMetadata) -> Path:
     return Path(f"{sanitize_filename(name)}.mp4")
 
 
-def sanitize_filename(value: str) -> str:
+def sanitize_filename(value: str, max_length: int = MAX_FILENAME_LENGTH) -> str:
     sanitized = INVALID_FILENAME_CHARS.sub("_", value).strip(" .")
     sanitized = re.sub(r"\s+", " ", sanitized)
+    if not sanitized:
+        return "output"
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length].rstrip(" .")
+    encoded = sanitized.encode("utf-8")
+    if len(encoded) > max_length:
+        sanitized = encoded[:max_length].decode("utf-8", errors="ignore").rstrip(" .")
     if not sanitized:
         return "output"
     if sanitized.split(".", 1)[0].upper() in WINDOWS_RESERVED_FILENAMES:

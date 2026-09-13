@@ -24,6 +24,7 @@ from yaatv.cli import (
     MACOS_FFMPEG_ARCHIVE_URL,
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
+    MAX_FILENAME_LENGTH,
     OUTPUT_SIZES,
     TOOL_HEALTH_TIMEOUT_SECONDS,
     WINDOWS_FFMPEG_ARCHIVE_SHA256,
@@ -1110,6 +1111,48 @@ def test_default_output_avoids_windows_reserved_audio_stem() -> None:
     metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
 
     assert default_output_path(Path("COM1.flac"), metadata) == Path("_COM1.mp4")
+
+
+def test_sanitize_filename_truncates_to_max_length() -> None:
+    long_name = "a" * 300
+    sanitized = sanitize_filename(long_name)
+    assert len(sanitized) == MAX_FILENAME_LENGTH
+    assert sanitized == "a" * MAX_FILENAME_LENGTH
+
+
+def test_sanitize_filename_custom_max_length() -> None:
+    assert sanitize_filename("hello world", max_length=5) == "hello"
+
+
+def test_sanitize_filename_rstrips_dots_and_spaces_after_truncation() -> None:
+    assert sanitize_filename("artist - title ... extra", max_length=16) == "artist - title"
+
+
+def test_sanitize_filename_truncates_utf8_byte_bound() -> None:
+    # 100 3-byte Japanese characters = 300 bytes
+    japanese_name = "あ" * 100
+    sanitized = sanitize_filename(japanese_name)
+    assert len(sanitized.encode("utf-8")) <= MAX_FILENAME_LENGTH
+    # 200 // 3 = 66 characters (198 bytes)
+    assert sanitized == "あ" * 66
+
+
+def test_sanitize_filename_fallback_when_truncated_to_empty() -> None:
+    assert sanitize_filename(" . " * 100, max_length=10) == "output"
+
+
+def test_default_output_path_caps_very_long_metadata() -> None:
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=44_100,
+        artist="A" * 200,
+        title="T" * 200,
+    )
+    output = default_output_path(Path("track.flac"), metadata)
+    assert len(output.stem) == MAX_FILENAME_LENGTH
+    assert len(output.name) == MAX_FILENAME_LENGTH + len(".mp4")
+    assert output.suffix == ".mp4"
 
 
 def test_find_ffmpeg_uses_app_cache_before_path(
