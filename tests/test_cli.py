@@ -207,6 +207,27 @@ def test_release_workflow_builds_native_macos_arm64_asset() -> None:
     assert "platform.machine()" in workflow
 
 
+def test_ci_workflow_includes_cross_platform_matrix() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "runs-on: ${{ matrix.os }}" in workflow
+    assert "os: ubuntu-latest" in workflow
+    assert "os: windows-latest" in workflow
+    assert "os: macos-latest" in workflow
+    assert 'python-version: "3.10"' in workflow
+    assert 'python-version: "3.11"' in workflow
+    assert 'python-version: "3.12"' in workflow
+    assert "Install FFmpeg (Linux)" in workflow
+    assert "Install FFmpeg (macOS)" in workflow
+    assert "Install FFmpeg (Windows)" in workflow
+    assert "choco install ffmpeg" in workflow
+    assert "brew install ffmpeg" in workflow
+    assert "sudo apt-get install --yes ffmpeg" in workflow
+    assert "matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'" in workflow
+
+
 def test_windows_installer_uses_pinned_versioned_release_archive() -> None:
     assert WINDOWS_FFMPEG_ARCHIVE_URL == (
         "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip"
