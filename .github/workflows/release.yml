@@ -305,7 +305,31 @@ jobs:
               cp -a dist/${{ matrix.executable_name }}/* "$package_dir/"
               ;;
           esac
-          cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt "$package_dir/"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          tag = os.environ.get("GITHUB_REF_NAME", "main")
+          source_notice = (
+              "yaatv Source Code Notice\n"
+              "========================\n\n"
+              "yaatv is free software licensed under the GNU General Public License version 2\n"
+              "or (at your option) any later version (GPL-2.0-or-later).\n\n"
+              "In accordance with the GNU General Public License, the exact corresponding source code\n"
+              "for this binary release (including source files, build workflows, and packaging scripts)\n"
+              "can be obtained from the yaatv repository:\n\n"
+              f"  https://github.com/yaatv/yaatv/tree/{tag}\n"
+              f"  https://github.com/yaatv/yaatv/releases/tag/{tag}\n\n"
+              "To clone the source repository:\n\n"
+              "  git clone https://github.com/yaatv/yaatv.git\n"
+              "  cd yaatv\n"
+              f"  git checkout {tag}\n\n"
+              "Full license text for yaatv is provided in LICENSE.\n"
+              "Licenses and copyright notices for bundled third-party dependencies are provided in THIRD_PARTY_LICENSES.txt.\n"
+          )
+          Path("SOURCE.txt").write_text(source_notice, encoding="utf-8")
+          PY
+          cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$package_dir/"
           python - <<'PY'
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile

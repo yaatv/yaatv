@@ -60,7 +60,8 @@ def generate_license_text() -> str:
     sections: list[str] = [
         "# Third-party licenses for yaatv",
         "",
-        "The yaatv source code is licensed under the MIT License in LICENSE.",
+        "The yaatv source code is licensed under the GNU General Public License v2",
+        "or later (GPL-2.0-or-later) in LICENSE.",
         "",
         "This file records third-party runtime dependencies and release components",
         "bundled into yaatv standalone binary releases.",

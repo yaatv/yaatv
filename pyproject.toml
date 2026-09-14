@@ -8,7 +8,7 @@ version = "0.6.4"
 description = "Yet Another Audio To Video: combine audio and cover art into a YouTube-ready video."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = "GPL-2.0-or-later"
 license-files = [
   "LICENSE",
 ]
