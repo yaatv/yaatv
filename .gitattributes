@@ -1,5 +1,9 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Normalize repository text files to LF.
+* text=auto eol=lf
+
+# Windows command scripts require CRLF working-tree line endings.
+*.bat text eol=crlf
+*.cmd text eol=crlf
 
 *.md diff=markdown
 *.py diff=python
