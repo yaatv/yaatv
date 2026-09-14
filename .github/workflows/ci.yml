@@ -64,7 +64,7 @@ jobs:
           python -m yaatv --version
 
       - name: Run quality gates
-        if: matrix.python-version == '3.11'
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: |
           python -m ruff check .
           python -m mypy
@@ -76,7 +76,9 @@ jobs:
         run: python -m pytest
 
       - name: Build package
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m build
 
       - name: Check package metadata
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.11'
         run: python -m twine check dist/*
