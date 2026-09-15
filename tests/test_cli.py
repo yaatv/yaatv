@@ -2835,6 +2835,18 @@ def test_animated_image_is_rejected(tmp_path: Path) -> None:
         validate_image(image_path)
 
 
+def test_oversized_image_is_rejected_as_validation_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    image_path = tmp_path / "cover.png"
+    Image.new("RGB", (20, 20), (255, 0, 0)).save(image_path)
+
+    with pytest.raises(YaatvError, match="too large to process safely"):
+        validate_image(image_path)
+
+
 def test_existing_output_refuses_noninteractive_overwrite(tmp_path: Path) -> None:
     output = tmp_path / "out.mp4"
     output.write_bytes(b"existing")
