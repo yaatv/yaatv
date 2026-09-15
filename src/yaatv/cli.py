@@ -2250,6 +2250,9 @@ def _should_pause_after_run(argv: Sequence[str], stdin: TextIO) -> bool:
     if not _uses_drag_drop_arguments(argv):
         return False
 
+    if os.name != "nt":
+        return False
+
     if not stdin.isatty():
         return True
 
