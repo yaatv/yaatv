@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.request import Request
 
 import pytest
+from mutagen.id3 import PictureType
 from PIL import Image
 
 from yaatv import __version__
@@ -2804,6 +2805,39 @@ def test_extract_embedded_cover_skips_invalid_candidate(
     assert cover_path == output_dir / "embedded-cover-2.jpg"
     assert validate_image(cover_path) == (16, 16)
     assert not (output_dir / "embedded-cover-1.jpg").exists()
+
+
+def test_extract_embedded_cover_prefers_front_cover(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Regression test for #64: a picture explicitly marked as the front cover
+    must be preferred over an earlier, unmarked-but-valid candidate."""
+    back_bytes = _image_bytes()
+    buffer = BytesIO()
+    Image.new("RGB", (16, 16), color=(200, 50, 10)).save(buffer, format="JPEG")
+    front_bytes = buffer.getvalue()
+
+    back_cover = type(
+        "FakePicture", (), {"data": back_bytes, "mime": "image/jpeg", "type": PictureType.OTHER}
+    )()
+    front_cover = type(
+        "FakePicture",
+        (),
+        {"data": front_bytes, "mime": "image/jpeg", "type": PictureType.COVER_FRONT},
+    )()
+    # Back cover listed first, front cover second: without the preference,
+    # extraction would stop at the first valid candidate (the back cover).
+    audio = type("FakeAudio", (), {"pictures": [back_cover, front_cover], "tags": None})()
+    audio_path = tmp_path / "track.flac"
+    output_dir = tmp_path / "covers"
+    output_dir.mkdir()
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: audio)
+
+    cover_path = extract_embedded_cover(audio_path, output_dir)
+
+    assert cover_path is not None
+    assert cover_path.read_bytes() == front_bytes
 
 
 def test_extract_embedded_cover_rejects_all_invalid_candidates(
