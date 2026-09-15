@@ -382,14 +382,38 @@ def test_parse_args_accepts_open_folder() -> None:
     assert args.open_folder is True
 
 
-def test_should_pause_after_run_for_noninteractive_positional_files() -> None:
+def test_should_pause_after_run_for_windows_noninteractive_positional_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(os, "name", "nt")
+
     assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is True
 
 
 def test_should_pause_after_run_for_windows_explorer_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "name", "nt")
     monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
 
     assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is True
+
+
+def test_should_not_pause_after_run_for_windows_terminal_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "powershell.exe")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is False
+
+
+def test_should_not_pause_after_run_on_posix_with_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "name", "posix")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is False
+
+
+def test_should_not_pause_after_run_on_posix_noninteractive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, "name", "posix")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
 
 
 def test_should_not_pause_after_run_for_flag_invocation() -> None:
@@ -398,6 +422,7 @@ def test_should_not_pause_after_run_for_flag_invocation() -> None:
 
 def test_main_pauses_after_drag_drop_success(monkeypatch: pytest.MonkeyPatch) -> None:
     stderr = StringIO()
+    monkeypatch.setattr(os, "name", "nt")
 
     def fake_run(argv: list[str], *, stdin: StringIO, stderr: StringIO) -> int:
         assert argv == ["track.flac", "cover.jpg"]
@@ -411,6 +436,7 @@ def test_main_pauses_after_drag_drop_success(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_main_pauses_after_drag_drop_error(monkeypatch: pytest.MonkeyPatch) -> None:
     stderr = StringIO()
+    monkeypatch.setattr(os, "name", "nt")
 
     def fake_run(argv: list[str], *, stdin: StringIO, stderr: StringIO) -> int:
         raise YaatvError("bad input")
@@ -421,6 +447,20 @@ def test_main_pauses_after_drag_drop_error(monkeypatch: pytest.MonkeyPatch) -> N
     output = stderr.getvalue()
     assert "error: bad input" in output
     assert "Press Enter to exit..." in output
+
+
+def test_main_does_not_pause_after_drag_drop_on_non_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    stderr = StringIO()
+    monkeypatch.setattr(os, "name", "posix")
+
+    def fake_run(argv: list[str], *, stdin: StringIO, stderr: StringIO) -> int:
+        assert argv == ["track.flac", "cover.jpg"]
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run", fake_run)
+
+    assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 0
+    assert "Press Enter to exit..." not in stderr.getvalue()
 
 
 def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
