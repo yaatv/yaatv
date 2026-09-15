@@ -14,6 +14,8 @@ from PIL import Image
 from yaatv import __version__
 from yaatv.cli import (
     FFMPEG_DOWNLOAD_USER_AGENT,
+    KNOWN_AUDIO_EXTENSIONS,
+    KNOWN_IMAGE_EXTENSIONS,
     LINUX_FFMPEG_ARCHIVE_SHA256,
     LINUX_FFMPEG_ARCHIVE_URL,
     LINUX_FFPROBE_ARCHIVE_SHA256,
@@ -170,6 +172,22 @@ def test_readme_release_tag_matches_project_metadata() -> None:
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
 
     assert f"git tag v{_pyproject_version()}" in readme
+
+
+def test_readme_supported_formats_table_matches_extension_constants() -> None:
+    """Regression test for #68: the documented supported-format list must not
+    drift from the extension constants that actually gate CLI input."""
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+
+    section_match = re.search(
+        r"## Supported input formats\n(.*?)\n## Common uses", readme, flags=re.DOTALL
+    )
+    assert section_match is not None, "README is missing the 'Supported input formats' section"
+    section = section_match.group(1)
+
+    documented_extensions = set(re.findall(r"`(\.[a-z0-9]+)`", section))
+
+    assert documented_extensions == KNOWN_AUDIO_EXTENSIONS | KNOWN_IMAGE_EXTENSIONS
 
 
 def test_release_workflow_checks_tag_version_before_building() -> None:
