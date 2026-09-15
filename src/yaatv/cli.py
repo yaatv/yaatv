@@ -857,8 +857,21 @@ def _finish_ffmpeg_install(
     stderr: TextIO,
 ) -> Path:
     _install_staged_tools(staging_dir, install_dir, tool_names, executable=executable)
+    _verify_installed_tools(install_dir, tool_names)
     print(f"Installed FFmpeg and FFprobe to {install_dir}", file=stderr)
     return install_dir
+
+
+def _verify_installed_tools(install_dir: Path, tool_names: Iterable[str]) -> None:
+    """Confirm every newly installed tool actually runs before reporting success."""
+    for tool_name in tool_names:
+        tool_path = install_dir / tool_name
+        health = check_tool_health(str(tool_path))
+        if health.state != "ok":
+            detail = f" ({health.detail})" if health.detail else ""
+            raise YaatvError(
+                f"Installed {tool_name} to {tool_path} but it is not usable: {health.state}{detail}"
+            )
 
 
 def _install_staged_tools(
