@@ -14,7 +14,7 @@ yaatv/
 ├── tests/
 │   ├── test_cli.py          # Deterministic unit tests (mocked subprocesses, argument parsing, logic)
 │   └── test_ffmpeg_integration.py # End-to-end integration tests requiring real FFmpeg/FFprobe
-├── docs/                    # Static website hosted on GitHub Pages (yaatv.org)
+├── docs/                    # Static website hosted on GitHub Pages (convert.yaatv.org)
 ├── scripts/                 # Contributor and CI automation scripts (e.g. check.py)
 ├── .github/
 │   ├── workflows/           # CI matrix, release builds, installer health checks

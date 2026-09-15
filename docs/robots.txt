@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://yaatv.org/sitemap.xml
+Sitemap: https://convert.yaatv.org/sitemap.xml

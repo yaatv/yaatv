@@ -1,0 +1,10 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "convert-yaatv-org",
+  "compatibility_date": "2026-08-26",
+  "assets": {
+    "directory": "docs",
+    "not_found_handling": "404-page"
+  }
+}
+

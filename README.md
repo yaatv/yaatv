@@ -13,7 +13,7 @@ yaatv audio.flac cover.jpg
 
 Give it audio. Give it artwork. Get a video you can upload.
 
-Website and docs: <https://yaatv.org>
+Website and docs: <https://convert.yaatv.org>
 
 ## Download
 
@@ -264,4 +264,4 @@ git push origin main --tags
 ```
 
 The website is served from `docs/` with GitHub Pages and uses `docs/CNAME` for
-`yaatv.org`.
+`convert.yaatv.org`.
