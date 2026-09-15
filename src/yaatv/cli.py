@@ -1050,6 +1050,8 @@ def validate_image(path: Path, label: str = "Cover image") -> tuple[int, int]:
             image.verify()
     except YaatvError:
         raise
+    except Image.DecompressionBombError as exc:
+        raise YaatvError(f"{label} is too large to process safely: {path}") from exc
     except (UnidentifiedImageError, OSError) as exc:
         raise YaatvError(f"Could not read {label.lower()}: {path}") from exc
 
