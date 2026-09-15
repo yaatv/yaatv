@@ -2835,6 +2835,21 @@ def test_animated_image_is_rejected(tmp_path: Path) -> None:
         validate_image(image_path)
 
 
+def test_validate_image_rejects_decompression_bomb(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 100)
+    image_path = tmp_path / "oversized-cover.png"
+    Image.new("RGB", (15, 15), (1, 2, 3)).save(image_path, format="PNG")
+
+    with pytest.raises(YaatvError, match="exceeds Pillow's safe image-size limit"):
+        validate_image(image_path)
+
+    with pytest.raises(YaatvError, match="exceeds Pillow's safe image-size limit"):
+        validate_image(image_path, "Background image")
+
+
 def test_existing_output_refuses_noninteractive_overwrite(tmp_path: Path) -> None:
     output = tmp_path / "out.mp4"
     output.write_bytes(b"existing")
