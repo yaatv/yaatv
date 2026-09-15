@@ -22,6 +22,7 @@ from typing import Any, TextIO
 
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
+from mutagen.id3 import PictureType
 from PIL import Image, ImageColor, UnidentifiedImageError
 
 from . import __version__
@@ -1089,8 +1090,17 @@ def extract_embedded_cover(audio_path: Path, directory: Path) -> Path | None:
     if audio is None:
         return None
 
+    # Front-cover-marked candidates first (stable sort keeps original relative
+    # order both within that group and among the rest), so a front cover wins
+    # when one is marked, and the original "first valid image" behavior is
+    # otherwise unchanged.
+    candidates = sorted(
+        _embedded_cover_candidates(audio),
+        key=lambda candidate: not candidate[2],
+    )
+
     last_validation_error: YaatvError | None = None
-    for index, (image_data, mime_type) in enumerate(_embedded_cover_candidates(audio), start=1):
+    for index, (image_data, mime_type, _is_front_cover) in enumerate(candidates, start=1):
         suffix = _embedded_cover_suffix(mime_type, image_data)
         cover_path = directory / f"embedded-cover-{index}{suffix}"
         cover_path.write_bytes(image_data)
@@ -1107,11 +1117,16 @@ def extract_embedded_cover(audio_path: Path, directory: Path) -> Path | None:
     return None
 
 
-def _embedded_cover_candidates(audio: object) -> Iterable[tuple[bytes, str | None]]:
+def _embedded_cover_candidates(audio: object) -> Iterable[tuple[bytes, str | None, bool]]:
+    """Yield (image_data, mime_type, is_front_cover) for every embedded image."""
     for picture in getattr(audio, "pictures", ()) or ():
         image_data = getattr(picture, "data", None)
         if isinstance(image_data, bytes):
-            yield image_data, _string_or_none(getattr(picture, "mime", None))
+            yield (
+                image_data,
+                _string_or_none(getattr(picture, "mime", None)),
+                _is_front_cover(picture),
+            )
 
     tags = getattr(audio, "tags", None)
     if not tags:
@@ -1119,13 +1134,26 @@ def _embedded_cover_candidates(audio: object) -> Iterable[tuple[bytes, str | Non
 
     for value in _tag_values(tags, ("covr", "\xa9covr")):
         if isinstance(value, (bytes, bytearray)):
-            yield bytes(value), None
+            # MP4 `covr` atoms carry no picture-type metadata to check.
+            yield bytes(value), None, False
 
     values = tags.values() if hasattr(tags, "values") else ()
     for value in values:
         image_data = getattr(value, "data", None)
         if isinstance(image_data, bytes):
-            yield image_data, _string_or_none(getattr(value, "mime", None))
+            yield (
+                image_data,
+                _string_or_none(getattr(value, "mime", None)),
+                _is_front_cover(value),
+            )
+
+
+def _is_front_cover(picture: object) -> bool:
+    """True if a FLAC ``Picture`` or ID3 ``APIC`` frame is marked as the front cover.
+
+    Both formats share the same ``mutagen.id3.PictureType`` picture-type values.
+    """
+    return getattr(picture, "type", None) == PictureType.COVER_FRONT
 
 
 def _tag_values(tags: object, keys: Iterable[str]) -> Iterable[object]:
