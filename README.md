@@ -76,6 +76,24 @@ chmod +x ./yaatv-macos
 
 Use `yaatv-macos-arm64` instead when you download the Apple Silicon ZIP.
 
+## Supported input formats
+
+yaatv recognizes these file extensions for the audio file and for cover /
+background images, including in [drag and drop](#drag-and-drop) mode.
+
+| Audio | Image |
+| --- | --- |
+| `.aac` | `.bmp` |
+| `.aiff` | `.jpeg` |
+| `.alac` | `.jpg` |
+| `.flac` | `.png` |
+| `.m4a` | `.tif` |
+| `.mp3` | `.tiff` |
+| `.ogg` | `.webp` |
+| `.opus` | |
+| `.wav` | |
+| `.wma` | |
+
 ## Common uses
 
 Choose an output file:
