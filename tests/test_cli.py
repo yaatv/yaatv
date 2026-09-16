@@ -405,6 +405,18 @@ def test_should_not_pause_after_run_for_windows_terminal_parent(monkeypatch: pyt
     assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
 
 
+def test_should_not_pause_after_run_for_posix_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("yaatv.cli.os.name", "posix")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is False
+
+
+def test_should_not_pause_after_run_for_posix_non_tty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("yaatv.cli.os.name", "posix")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
+
+
 def test_should_not_pause_after_run_for_flag_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
 
