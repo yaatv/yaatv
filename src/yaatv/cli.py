@@ -2180,10 +2180,12 @@ def run(
 
 
 def _uses_drag_drop_arguments(argv: Sequence[str]) -> bool:
+    """Return True when argv contains exactly two positional file arguments."""
     return len(argv) == 2 and all(not arg.startswith("-") for arg in argv)
 
 
 def _windows_parent_process_name() -> str | None:
+    """Return the lowercase executable name of the parent process on Windows."""
     if os.name != "nt":
         return None
 
