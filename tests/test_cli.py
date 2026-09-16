@@ -404,6 +404,7 @@ def test_main_pauses_after_drag_drop_success(monkeypatch: pytest.MonkeyPatch) ->
         return 0
 
     monkeypatch.setattr("yaatv.cli.run", fake_run)
+    monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
 
     assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 0
     assert "Press Enter to exit..." in stderr.getvalue()
@@ -416,6 +417,7 @@ def test_main_pauses_after_drag_drop_error(monkeypatch: pytest.MonkeyPatch) -> N
         raise YaatvError("bad input")
 
     monkeypatch.setattr("yaatv.cli.run", fake_run)
+    monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
 
     assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 1
     output = stderr.getvalue()
