@@ -2263,10 +2263,11 @@ def _should_pause_after_run(argv: Sequence[str], stdin: TextIO) -> bool:
 
 
 def _pause_before_exit(stdin: TextIO, stderr: TextIO) -> None:
+    """Prompt user to press enter before console window closes, ignoring interrupt/EOF."""
     try:
         print("\nPress Enter to exit...", file=stderr, flush=True)
         stdin.readline()
-    except (EOFError, KeyboardInterrupt):
+    except (EOFError, KeyboardInterrupt, ValueError):
         pass
 
 
