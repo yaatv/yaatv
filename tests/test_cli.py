@@ -452,6 +452,19 @@ def test_main_pauses_after_drag_drop_error(monkeypatch: pytest.MonkeyPatch) -> N
     assert "Press Enter to exit..." in output
 
 
+def test_main_does_not_pause_outside_windows_explorer(monkeypatch: pytest.MonkeyPatch) -> None:
+    stderr = StringIO()
+
+    def fake_run(argv: list[str], *, stdin: StringIO, stderr: StringIO) -> int:
+        assert argv == ["track.flac", "cover.jpg"]
+        return 0
+
+    monkeypatch.setattr("yaatv.cli.run", fake_run)
+
+    assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 0
+    assert "Press Enter to exit..." not in stderr.getvalue()
+
+
 def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         parse_args(["--help"])
