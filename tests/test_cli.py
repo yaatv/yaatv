@@ -382,14 +382,15 @@ def test_parse_args_accepts_open_folder() -> None:
     assert args.open_folder is True
 
 
-def test_should_pause_after_run_for_noninteractive_positional_files() -> None:
-    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is True
+def test_should_not_pause_after_run_for_noninteractive_positional_files() -> None:
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
 
 
 def test_should_pause_after_run_for_windows_explorer_parent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
 
     assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is True
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is True
 
 
 def test_should_not_pause_after_run_for_flag_invocation(monkeypatch: pytest.MonkeyPatch) -> None:

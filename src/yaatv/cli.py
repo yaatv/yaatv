@@ -2252,12 +2252,10 @@ def _windows_parent_process_name() -> str | None:
     return None
 
 
-def _should_pause_after_run(argv: Sequence[str], stdin: TextIO) -> bool:
+def _should_pause_after_run(argv: Sequence[str], stdin: TextIO | None = None) -> bool:
+    """Return True if argv represents drag-and-drop files launched from Windows Explorer."""
     if not _uses_drag_drop_arguments(argv):
         return False
-
-    if not stdin.isatty():
-        return True
 
     return _windows_parent_process_name() == "explorer.exe"
 
