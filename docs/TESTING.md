@@ -19,7 +19,7 @@ Unit tests verify:
 - Silence padding duration and audio filter parameters.
 - FFmpeg filtergraph construction (scaling, padding, background blur/color).
 - Error handling when inputs are invalid, missing, or conflicting.
-- Windows drag-and-drop argument handling.
+- Windows drag-and-drop argument handling and Explorer pause isolation.
 
 These tests mock external calls to `subprocess.run` and `subprocess.Popen` where appropriate. They run quickly, deterministically, and offline without requiring FFmpeg installed on the system.
 
@@ -81,9 +81,10 @@ python scripts/check.py
   - Test path handling with backslashes and drive letters (`C:\...`).
   - Test paths containing spaces and unicode characters.
   - Verify that file handles are properly closed so Windows file-locking does not prevent file replacement.
+  - Verify that post-run pause prompts are restricted strictly to Windows Explorer (`explorer.exe`) drag-and-drop runs and do not trigger in terminals (`cmd.exe`, `powershell.exe`).
 - **Linux**:
   - Verify execution in headless/CI environments.
-  - Check that no GUI or interactive prompt hangs in non-TTY environments.
+  - Check that no interactive prompt hangs in non-TTY environments or piped executions.
 - **macOS**:
   - Verify both Intel (x64) and Apple Silicon (arm64) runtime compatibility.
   - Verify ProRes `.mov` output container compatibility.
