@@ -393,6 +393,18 @@ def test_should_pause_after_run_for_windows_explorer_parent(monkeypatch: pytest.
     assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is True
 
 
+def test_should_not_pause_after_run_for_windows_terminal_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "cmd.exe")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is False
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
+
+    monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "powershell.exe")
+
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], _TtyInput("\n")) is False
+    assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
+
+
 def test_should_not_pause_after_run_for_flag_invocation(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("yaatv.cli._windows_parent_process_name", lambda: "explorer.exe")
 
