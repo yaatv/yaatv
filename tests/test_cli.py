@@ -119,6 +119,18 @@ def _video_tail(pixel_format: str) -> str:
     )
 
 
+def _video_scale(width: int, height: int, *, aspect: str | None = None) -> str:
+    aspect_option = f":force_original_aspect_ratio={aspect}" if aspect is not None else ""
+    return f"scale={width}:{height}{aspect_option}:out_color_matrix=bt709:out_range=tv"
+
+
+def _color_source_scale(width: int, height: int) -> str:
+    return (
+        f"scale={width}:{height}:in_color_matrix=bt470bg:in_range=tv:"
+        "out_color_matrix=bt709:out_range=tv"
+    )
+
+
 def test_readme_supported_input_formats_match_code_constants() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
@@ -136,7 +148,7 @@ def _readme_format_extensions(readme: str, input_type: str) -> set[str]:
 
 def _pad_filter(width: int, height: int, *, color: str = "black", pixel_format: str = "yuv420p") -> str:
     return (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"{_video_scale(width, height, aspect='decrease')},"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{color},"
         f"{_video_tail(pixel_format)}"
     )
@@ -144,9 +156,9 @@ def _pad_filter(width: int, height: int, *, color: str = "black", pixel_format: 
 
 def _background_image_filter(width: int, height: int, *, pixel_format: str = "yuv420p") -> str:
     return (
-        f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+        f"[0:v]{_video_scale(width, height, aspect='increase')},"
         f"crop={width}:{height}[bg];"
-        f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[1:v]{_video_scale(width, height, aspect='decrease')}[fg];"
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{_video_tail(pixel_format)}[v]"
     )
 
@@ -154,9 +166,9 @@ def _background_image_filter(width: int, height: int, *, pixel_format: str = "yu
 def _background_blur_filter(width: int, height: int, *, pixel_format: str = "yuv420p") -> str:
     return (
         "[0:v]split[s1][s2];"
-        f"[s1]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+        f"[s1]{_video_scale(width, height, aspect='increase')},"
         f"crop={width}:{height},boxblur=20:5[bg];"
-        f"[s2]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[s2]{_video_scale(width, height, aspect='decrease')}[fg];"
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{_video_tail(pixel_format)}[v]"
     )
 
@@ -704,7 +716,7 @@ def test_media_contract_defines_every_supported_output_size(
             {"image_path": None, "bg_color": "0xffffff", "output_duration": 30},
             ["ffmpeg", "-n", "-i", "track.flac", "-f", "lavfi", "-i", "color=c=0xffffff:s=1920x1080:d=30"],
             "-vf",
-            f"fps=fps=1:start_time=0,{_video_tail('yuv420p')}",
+            f"fps=fps=1:start_time=0,{_color_source_scale(1920, 1080)},{_video_tail('yuv420p')}",
             ("1:v:0", "0:a:0"),
         ),
     ],
@@ -808,7 +820,7 @@ def test_transcode_command_uses_required_youtube_settings() -> None:
     assert "-shortest" in command
     assert command[command.index("-movflags") + 1] == "+faststart"
     assert command[command.index("-vf") + 1] == (
-        "scale=2560:1440:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"{_video_scale(2560, 1440, aspect='decrease')},"
         "pad=2560:1440:(ow-iw)/2:(oh-ih)/2:black,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
@@ -833,7 +845,7 @@ def test_background_color_changes_default_pad_color() -> None:
     )
 
     assert command[command.index("-vf") + 1] == (
-        "scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"{_video_scale(1920, 1080, aspect='decrease')},"
         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:0xffffff,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
@@ -857,7 +869,7 @@ def test_square_command_uses_square_canvas() -> None:
     )
 
     assert command[command.index("-vf") + 1] == (
-        "scale=1080:1080:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"{_video_scale(1080, 1080, aspect='decrease')},"
         "pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
@@ -883,9 +895,9 @@ def test_vertical_background_blur_command_uses_vertical_canvas() -> None:
 
     assert command[command.index("-filter_complex") + 1] == (
         "[0:v]split[s1][s2];"
-        "[s1]scale=1080:1920:force_original_aspect_ratio=increase:out_range=tv,"
+        f"[s1]{_video_scale(1080, 1920, aspect='increase')},"
         "crop=1080:1920,boxblur=20:5[bg];"
-        "[s2]scale=1080:1920:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[s2]{_video_scale(1080, 1920, aspect='decrease')}[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
@@ -930,9 +942,9 @@ def test_background_image_command_overlays_cover_on_background() -> None:
     assert command[command.index("-map") + 1] == "[v]"
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "2:a:0"
     assert command[command.index("-filter_complex") + 1] == (
-        "[0:v]scale=1920:1080:force_original_aspect_ratio=increase:out_range=tv,"
+        f"[0:v]{_video_scale(1920, 1080, aspect='increase')},"
         "crop=1920:1080[bg];"
-        "[1:v]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[1:v]{_video_scale(1920, 1080, aspect='decrease')}[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
@@ -961,9 +973,9 @@ def test_background_blur_command_splits_cover_image() -> None:
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "1:a:0"
     assert command[command.index("-filter_complex") + 1] == (
         "[0:v]split[s1][s2];"
-        "[s1]scale=1920:1080:force_original_aspect_ratio=increase:out_range=tv,"
+        f"[s1]{_video_scale(1920, 1080, aspect='increase')},"
         "crop=1920:1080,boxblur=20:5[bg];"
-        "[s2]scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+        f"[s2]{_video_scale(1920, 1080, aspect='decrease')}[fg];"
         "[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
@@ -994,6 +1006,7 @@ def test_color_only_command_uses_generated_video_stream() -> None:
     assert command[command.index("-i", command.index("-i") + 1) + 1] == "color=c=0xffffff:s=1920x1080:d=30"
     assert command[command.index("-vf") + 1] == (
         "fps=fps=1:start_time=0,"
+        f"{_color_source_scale(1920, 1080)},"
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
@@ -1849,7 +1862,7 @@ def test_run_dry_run_uses_selected_aspect(
         stderr=stderr,
     ) == 0
     command = stderr.getvalue()
-    assert "scale=1080:1920:force_original_aspect_ratio=decrease:out_range=tv" in command
+    assert _video_scale(1080, 1920, aspect="decrease") in command
     assert "pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black" in command
 
 
@@ -3122,7 +3135,7 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
     assert command[command.index("-f") + 1] == "mov"
     assert "-movflags" not in command
     assert command[command.index("-vf") + 1] == (
-        "scale=1920:1080:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"{_video_scale(1920, 1080, aspect='decrease')},"
         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,"
         "format=yuv422p10le,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
@@ -3154,8 +3167,12 @@ def test_prores_background_image_uses_yuv422_overlay() -> None:
         "format=yuv422p10le,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
-    assert "force_original_aspect_ratio=increase:out_range=tv" in command[command.index("-filter_complex") + 1]
-    assert "force_original_aspect_ratio=decrease:out_range=tv" in command[command.index("-filter_complex") + 1]
+    assert "force_original_aspect_ratio=increase:out_color_matrix=bt709:out_range=tv" in command[
+        command.index("-filter_complex") + 1
+    ]
+    assert "force_original_aspect_ratio=decrease:out_color_matrix=bt709:out_range=tv" in command[
+        command.index("-filter_complex") + 1
+    ]
 
 
 def test_h264_command_unchanged_without_is_prores() -> None:

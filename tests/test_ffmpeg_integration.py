@@ -52,6 +52,62 @@ def test_cli_encodes_valid_mp4_with_ffmpeg(tmp_path: Path) -> None:
     _assert_valid_output(ffmpeg, ffprobe, output_path, expected_size=(1920, 1080), max_duration=3)
 
 
+def test_cli_converts_rgb_artwork_to_bt709_limited_values(tmp_path: Path) -> None:
+    ffmpeg, _ = _require_ffmpeg_tools()
+
+    audio_path = tmp_path / "tone.wav"
+    image_path = tmp_path / "red.png"
+    output_path = tmp_path / "red-output.mp4"
+
+    _write_sine_wave(audio_path)
+    Image.new("RGB", (160, 90), (255, 0, 0)).save(image_path, "PNG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+
+    decoded = subprocess.run(
+        [
+            ffmpeg,
+            "-v",
+            "error",
+            "-i",
+            str(output_path),
+            "-vf",
+            "crop=2:2:0:0,format=yuv444p",
+            "-frames:v",
+            "1",
+            "-f",
+            "rawvideo",
+            "-",
+        ],
+        check=False,
+        capture_output=True,
+    )
+    assert decoded.returncode == 0, decoded.stderr.decode("utf-8", errors="replace")
+    assert len(decoded.stdout) == 12
+
+    y_plane = decoded.stdout[0:4]
+    u_plane = decoded.stdout[4:8]
+    v_plane = decoded.stdout[8:12]
+    assert 58 <= sum(y_plane) / len(y_plane) <= 68
+    assert 98 <= sum(u_plane) / len(u_plane) <= 106
+    assert 236 <= sum(v_plane) / len(v_plane) <= 244
+
+
 def test_cli_encodes_unicode_filenames_with_ffmpeg(tmp_path: Path) -> None:
     ffmpeg, ffprobe = _require_ffmpeg_tools()
 

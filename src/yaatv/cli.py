@@ -1406,6 +1406,18 @@ def _video_tail(is_prores: bool) -> str:
     )
 
 
+def _video_scale(width: int, height: int, *, aspect: str | None = None) -> str:
+    aspect_option = f":force_original_aspect_ratio={aspect}" if aspect is not None else ""
+    return f"scale={width}:{height}{aspect_option}:out_color_matrix=bt709:out_range=tv"
+
+
+def _color_source_scale(width: int, height: int) -> str:
+    return (
+        f"scale={width}:{height}:in_color_matrix=bt470bg:in_range=tv:"
+        "out_color_matrix=bt709:out_range=tv"
+    )
+
+
 def _video_codec_args(is_prores: bool) -> tuple[str, ...]:
     if is_prores:
         return (
@@ -1535,7 +1547,7 @@ def build_ffmpeg_command(
             "0:a:0",
             *_encode_args(audio_plan, is_prores),
             *_filter_output_args(
-                f"fps=fps=1:start_time=0,{video_tail}",
+                f"fps=fps=1:start_time=0,{_color_source_scale(width, height)},{video_tail}",
                 output_duration,
                 is_prores,
                 output_path,
@@ -1545,9 +1557,9 @@ def build_ffmpeg_command(
 
     if bg_image_path is not None:
         video_filter = (
-            f"[0:v]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+            f"[0:v]{_video_scale(width, height, aspect='increase')},"
             f"crop={width}:{height}[bg];"
-            f"[1:v]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+            f"[1:v]{_video_scale(width, height, aspect='decrease')}[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{video_tail}[v]"
         )
         return [
@@ -1585,9 +1597,9 @@ def build_ffmpeg_command(
     if bg_blur:
         video_filter = (
             "[0:v]split[s1][s2];"
-            f"[s1]scale={width}:{height}:force_original_aspect_ratio=increase:out_range=tv,"
+            f"[s1]{_video_scale(width, height, aspect='increase')},"
             f"crop={width}:{height},boxblur=20:5[bg];"
-            f"[s2]scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv[fg];"
+            f"[s2]{_video_scale(width, height, aspect='decrease')}[fg];"
             f"[bg][fg]overlay=(W-w)/2:(H-h)/2,{video_tail}[v]"
         )
         return [
@@ -1618,7 +1630,7 @@ def build_ffmpeg_command(
 
     if is_prores:
         video_filter = (
-            f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
+            f"{_video_scale(width, height, aspect='decrease')},"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{bg_color},"
             f"{video_tail}"
         )
@@ -1648,7 +1660,7 @@ def build_ffmpeg_command(
         ]
 
     video_filter = (
-        f"scale={width}:{height}:force_original_aspect_ratio=decrease:out_range=tv,"
+        f"{_video_scale(width, height, aspect='decrease')},"
         f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:{bg_color},"
         f"{video_tail}"
     )
