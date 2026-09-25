@@ -182,6 +182,13 @@ def _single_tool_zip_bytes(tool_name: str, data: bytes) -> bytes:
     return buffer.getvalue()
 
 
+def _mark_installed_tools_healthy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "yaatv.cli.check_tool_health",
+        lambda path: ToolHealth(path=path, state="ok", version="test"),
+    )
+
+
 def _pyproject_version() -> str:
     text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     if sys.version_info >= (3, 11):
@@ -2729,6 +2736,7 @@ def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
         destination.write_bytes(archive_bytes)
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
     assert install_windows_ffmpeg(
@@ -2740,6 +2748,35 @@ def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
     assert (install_dir / "ffprobe.exe").read_bytes() == b"ffprobe"
     assert not (install_dir / "ffplay.exe").exists()
+
+
+def test_install_ffmpeg_rejects_unusable_installed_tool(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_bytes = _ffmpeg_zip_bytes()
+    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+    stderr = StringIO()
+
+    def download(_url: str, destination: Path) -> None:
+        destination.write_bytes(archive_bytes)
+
+    def check_health(path: str | None) -> ToolHealth:
+        if path and path.endswith("ffprobe.exe"):
+            return ToolHealth(path=path, state="blocked", detail="Access is denied")
+        return ToolHealth(path=path, state="ok", version="test")
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.cli.check_tool_health", check_health)
+
+    with pytest.raises(YaatvError, match="Installed ffprobe.exe could not run"):
+        install_windows_ffmpeg(
+            install_dir=tmp_path / "yaatv" / "bin",
+            expected_sha256=expected_sha256,
+            stderr=stderr,
+        )
+
+    assert "Installed FFmpeg and FFprobe" not in stderr.getvalue()
 
 
 def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
@@ -2757,6 +2794,7 @@ def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
         destination.write_bytes(archive_by_url[url])
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
     assert install_linux_ffmpeg(
@@ -2789,6 +2827,7 @@ def test_install_macos_ffmpeg_extracts_ffmpeg_and_ffprobe(
         destination.write_bytes(archive_by_url[url])
 
     monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
     assert install_macos_ffmpeg(
@@ -2823,6 +2862,7 @@ def test_install_macos_ffmpeg_uses_arm64_downloads(
 
     monkeypatch.setattr("platform.machine", lambda: "arm64")
     monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
     assert install_macos_ffmpeg(
