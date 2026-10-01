@@ -418,13 +418,10 @@ def classify_files(paths: Sequence[Path]) -> tuple[Path, Path]:
             f"but {len(paths)} were provided."
         )
 
-    audio_paths = [path for path in paths if path.suffix.lower() in KNOWN_AUDIO_EXTENSIONS]
-    image_paths = [path for path in paths if path.suffix.lower() in KNOWN_IMAGE_EXTENSIONS]
-    unrecognized_paths = [
-        path
-        for path in paths
-        if path.suffix.lower() not in KNOWN_AUDIO_EXTENSIONS and path.suffix.lower() not in KNOWN_IMAGE_EXTENSIONS
-    ]
+    kinds = {path: _drag_drop_media_kind(path) for path in paths}
+    audio_paths = [path for path in paths if kinds[path] == "audio"]
+    image_paths = [path for path in paths if kinds[path] == "image"]
+    unrecognized_paths = [path for path in paths if kinds[path] is None]
 
     if len(audio_paths) == 1 and len(image_paths) == 1 and not unrecognized_paths:
         return audio_paths[0], image_paths[0]
@@ -446,6 +443,30 @@ def classify_files(paths: Sequence[Path]) -> tuple[Path, Path]:
         )
 
     raise YaatvError("Expected one audio file and one cover image.")
+
+
+def _drag_drop_media_kind(path: Path) -> str | None:
+    """Classify a positional input, probing content only for unusual extensions."""
+    suffix = path.suffix.lower()
+    if suffix in KNOWN_AUDIO_EXTENSIONS:
+        return "audio"
+    if suffix in KNOWN_IMAGE_EXTENSIONS:
+        return "image"
+    if not path.is_file():
+        return None
+
+    try:
+        validate_image(path)
+    except YaatvError:
+        pass
+    else:
+        return "image"
+
+    try:
+        read_audio_metadata(path)
+    except YaatvError:
+        return None
+    return "audio"
 
 
 def find_ffmpeg(

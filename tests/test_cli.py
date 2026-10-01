@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 import sys
+import wave
 import zipfile
 from io import BytesIO, StringIO
 from pathlib import Path
@@ -555,6 +556,28 @@ def test_classify_files_rejects_same_type_inputs() -> None:
 def test_classify_files_rejects_unrecognized_extensions() -> None:
     with pytest.raises(YaatvError, match="Could not classify file.stuff as audio or image"):
         classify_files([Path("track.flac"), Path("file.stuff")])
+
+
+def test_classify_files_probes_valid_media_with_unusual_extensions(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.audio"
+    with wave.open(str(audio_path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8_000)
+        audio.writeframes(b"\x00\x00" * 80)
+
+    image_path = tmp_path / "cover.picture"
+    Image.new("RGB", (8, 8), "blue").save(image_path, format="PNG")
+
+    assert classify_files([image_path, audio_path]) == (audio_path, image_path)
+
+
+def test_classify_files_rejects_invalid_unusual_media(tmp_path: Path) -> None:
+    invalid_path = tmp_path / "not-media.data"
+    invalid_path.write_text("not audio or an image", encoding="utf-8")
+
+    with pytest.raises(YaatvError, match="Could not classify .*not-media.data as audio or image"):
+        classify_files([Path("track.flac"), invalid_path])
 
 
 def test_positional_files_cannot_be_mixed_with_audio_or_image_flags() -> None:
