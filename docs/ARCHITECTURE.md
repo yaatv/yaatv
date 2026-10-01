@@ -12,7 +12,15 @@ yaatv/
 │       ├── __main__.py      # Module entrypoint (invokes cli.main())
 │       └── cli.py           # Core CLI logic, media processing, FFmpeg filtergraph, and execution
 ├── tests/
-│   ├── test_cli.py          # Deterministic unit tests (mocked subprocesses, argument parsing, logic)
+│   ├── _support.py          # Shared test helpers and generators
+│   ├── conftest.py          # Pytest configuration
+│   ├── test_project.py      # Packaging, versioning, and repository contracts
+│   ├── test_cli.py          # Public CLI interface, flags, and argument parsing
+│   ├── test_media.py        # Metadata, artwork, audio planning, and path normalization
+│   ├── test_ffmpeg.py       # FFmpeg command generation, filtergraphs, and progress streaming
+│   ├── test_system.py       # Binary discovery, health checks, and platform detection
+│   ├── test_installer.py    # Managed FFmpeg installer, downloads, and rollback
+│   ├── test_workflow.py     # End-to-end run orchestration, dry-runs, and overwrite flows
 │   └── test_ffmpeg_integration.py # End-to-end integration tests requiring real FFmpeg/FFprobe
 ├── docs/                    # Static website hosted on GitHub Pages (convert.yaatv.org)
 ├── scripts/                 # Contributor and CI automation scripts (e.g. check.py)
@@ -75,6 +83,6 @@ Execution & Verification
 
 ## Testing Strategy
 
-- **Deterministic Unit Tests (`tests/test_cli.py`)**: Tests CLI flags, geometry math, command generation, mock subprocess responses, and error handling without requiring `ffmpeg` installed. Fast and isolated.
+- **Deterministic Unit Tests (`tests/test_*.py`)**: Focused domain modules covering CLI flags, media handling, FFmpeg command generation, system detection, installer transactions, and workflow orchestration without requiring `ffmpeg` installed. Fast and isolated.
 - **Integration Tests (`tests/test_ffmpeg_integration.py`)**: Marked with `@pytest.mark.integration`. Exercises real encoding and decoding using system or local FFmpeg binaries.
 

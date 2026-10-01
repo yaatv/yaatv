@@ -4,22 +4,25 @@ This guide explains the test organization, execution modes, and platform conside
 
 ## Test Organization
 
-yaatv divides tests into two suites:
+yaatv divides tests into focused test modules and two execution suites:
 
 | Suite | Path | External Binaries Required | Typical Runtime |
 | --- | --- | --- | --- |
-| **Unit Tests** | `tests/test_cli.py` | None (pure Python, mocked subprocess) | ~1–2 seconds |
+| **Unit Tests** | `tests/test_*.py` | None (pure Python, mocked subprocess) | ~1–2 seconds |
 | **Integration Tests** | `tests/test_ffmpeg_integration.py` | Real `ffmpeg` and `ffprobe` | ~10–30 seconds |
 
-### 1. Unit Tests (`tests/test_cli.py`)
+### 1. Unit Tests
 
-Unit tests verify:
-- CLI argument parsing, flags, and default values.
-- Resolution, aspect ratio, and canvas dimension calculations.
-- Silence padding duration and audio filter parameters.
-- FFmpeg filtergraph construction (scaling, padding, background blur/color).
-- Error handling when inputs are invalid, missing, or conflicting.
-- Windows drag-and-drop argument handling and Explorer pause isolation.
+Unit tests are organized into focused modules by domain:
+
+- **`tests/test_project.py`**: Packaging and repository-level contracts (`pyproject.toml`, Python version requirements, dynamic package versioning, README format consistency, CI/release workflow assertions).
+- **`tests/test_cli.py`**: Public CLI surface (argument parsing, help text, option validation, mutual exclusion, drag-and-drop file classification, and Windows Explorer pause detection).
+- **`tests/test_media.py`**: Media domain logic (audio metadata parsing, embedded artwork extraction, image validation, audio planning, AAC copy decisions, quality warnings, filename sanitization, and output path normalization).
+- **`tests/test_ffmpeg.py`**: FFmpeg execution and command layer (`build_ffmpeg_command()`, filtergraph construction, H.264/ProRes encoding profiles, subprocess progress streaming, error tails, output probing, and stream verification).
+- **`tests/test_system.py`**: Environment and tool discovery (`find_ffmpeg()`, `find_ffprobe()`, tool health checks, app-managed tool paths, `--scry` diagnostics, and platform detection).
+- **`tests/test_installer.py`**: Managed FFmpeg installation (archive downloads, HTTPS enforcement, retries, checksums, archive extraction, platform fallback sources, transactional staging, rollback, and installer dispatch).
+- **`tests/test_workflow.py`**: End-to-end `run()` workflow orchestration (dry runs, quick mode, overwrite prompts and semantics, transactional cleanup on failure, and error handling).
+- **`tests/_support.py` & `tests/conftest.py`**: Shared test helpers, archive generators, and pytest configuration.
 
 These tests mock external calls to `subprocess.run` and `subprocess.Popen` where appropriate. They run quickly, deterministically, and offline without requiring FFmpeg installed on the system.
 
@@ -40,19 +43,44 @@ Integration tests automatically skip if `ffmpeg` or `ffprobe` is not found on th
 ### Run unit tests only (recommended for fast iteration)
 
 ```sh
-python -m pytest tests/test_cli.py -k "not integration"
+python -m pytest -m "not integration"
+```
+
+### Run a specific test module
+
+```sh
+# Run CLI argument tests
+python -m pytest tests/test_cli.py
+
+# Run media domain tests
+python -m pytest tests/test_media.py
+
+# Run FFmpeg command and filtergraph tests
+python -m pytest tests/test_ffmpeg.py
+
+# Run system discovery and diagnostic tests
+python -m pytest tests/test_system.py
+
+# Run managed installer tests
+python -m pytest tests/test_installer.py
+
+# Run top-level workflow orchestration tests
+python -m pytest tests/test_workflow.py
+
+# Run project packaging and contract tests
+python -m pytest tests/test_project.py
 ```
 
 ### Run a single test or test subset
 
-Filter by function name or keyword:
+Filter by function name or keyword across all modules:
 
 ```sh
 # Run a specific test
-python -m pytest tests/test_cli.py -k test_pad_option
+python -m pytest -k test_pad_option
 
 # Run all aspect ratio tests
-python -m pytest tests/test_cli.py -k aspect
+python -m pytest tests/test_ffmpeg.py -k aspect
 ```
 
 ### Run all tests including integration

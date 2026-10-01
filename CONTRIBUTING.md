@@ -71,7 +71,7 @@ Getting started with a contribution follows a straightforward flow:
    ```
 6. **Run targeted tests during development**:
    ```sh
-   python -m pytest tests/test_cli.py -k <test_name_or_keyword>
+   python -m pytest -k <test_name_or_keyword>
    ```
 7. **Run project checks before submitting**:
    ```sh
