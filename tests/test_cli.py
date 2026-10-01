@@ -1670,7 +1670,7 @@ def test_run_dry_run_prints_command_without_encoding(
     )
     monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
@@ -1733,7 +1733,7 @@ def test_run_dry_run_does_not_require_overwrite_when_output_exists(
     )
     monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
     def refuse_overwrite(*_args: object, **_kwargs: object) -> bool:
@@ -1857,7 +1857,7 @@ def test_run_quick_mode_dry_run_uses_classified_files(
     )
     monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
@@ -1996,7 +1996,7 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
         ),
     )
 
-    def encode(command: list[str], *, verbose: bool = False) -> int:
+    def encode(command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         captured["command"] = command
         captured["verbose"] = verbose
         output_path.write_bytes(b"video")
@@ -2049,7 +2049,7 @@ def test_failed_encode_removes_newly_created_partial_output(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     stderr = StringIO()
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         output_path.write_bytes(b"partial")
         return 1
 
@@ -2074,7 +2074,7 @@ def test_failed_encode_shows_ffmpeg_error_tail(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     stderr = StringIO()
 
-    def encode(_command: list[str], *, verbose: bool = False) -> FFmpegResult:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> FFmpegResult:
         output_path.write_bytes(b"partial")
         return FFmpegResult(1, "Invalid data found when processing input")
 
@@ -2098,7 +2098,7 @@ def test_failed_verification_removes_newly_created_output(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     stderr = StringIO()
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         output_path.write_bytes(b"video")
         return 0
 
@@ -2126,7 +2126,7 @@ def test_failed_output_stats_verification_removes_rejected_output(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     stderr = StringIO()
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         output_path.write_bytes(b"video")
         return 0
 
@@ -2166,7 +2166,7 @@ def test_failed_encode_without_output_creation_removes_nothing(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     stderr = StringIO()
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         return 1
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
@@ -2191,7 +2191,7 @@ def test_failed_encode_preserves_existing_output_when_overwrite_was_allowed(
 
     encoded_paths: list[Path] = []
 
-    def encode(command: list[str], *, verbose: bool = False) -> int:
+    def encode(command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         encoded_path = Path(command[-1])
         encoded_paths.append(encoded_path)
         encoded_path.write_bytes(b"partial")
@@ -2220,7 +2220,7 @@ def test_failed_verification_preserves_existing_output(
     output_path.write_bytes(b"previous output")
     encoded_paths: list[Path] = []
 
-    def encode(command: list[str], *, verbose: bool = False) -> int:
+    def encode(command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         encoded_path = Path(command[-1])
         encoded_paths.append(encoded_path)
         encoded_path.write_bytes(b"replacement")
@@ -2252,7 +2252,7 @@ def test_verified_overwrite_atomically_replaces_existing_output(
     output_path.write_bytes(b"previous output")
     encoded_paths: list[Path] = []
 
-    def encode(command: list[str], *, verbose: bool = False) -> int:
+    def encode(command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         encoded_path = Path(command[-1])
         encoded_paths.append(encoded_path)
         encoded_path.write_bytes(b"replacement")
@@ -2315,7 +2315,7 @@ def test_failed_encode_never_touches_preexisting_output_without_permission(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     output_path.write_bytes(b"previous output")
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("encoding must not start without overwrite permission")
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
@@ -2337,7 +2337,7 @@ def test_output_cleanup_failure_warns_without_hiding_original_error(
     audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
     stderr = StringIO()
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         output_path.write_bytes(b"partial")
         return 1
 
@@ -2388,7 +2388,7 @@ def test_run_uses_output_dir_and_overwrite_flag(
     )
     monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
 
-    def encode(command: list[str], *, verbose: bool = False) -> int:
+    def encode(command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         captured["command"] = command
         Path(command[-1]).write_bytes(b"replacement")
         return 0
@@ -2454,7 +2454,7 @@ def test_run_dry_run_allows_color_only_output(
         ),
     )
 
-    def encode(_command: list[str], *, verbose: bool = False) -> int:
+    def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
     monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
@@ -3079,13 +3079,24 @@ def test_normalize_output_path_rejects_file_parent(tmp_path: Path) -> None:
         normalize_output_path(parent / "out.mp4")
 
 
-def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_ffmpeg_streams_bounded_progress(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(
+    class FakeProcess:
+        stderr = StringIO(
+            "ffmpeg diagnostic\n"
+            "out_time_us=1000000\n"
+            "progress=continue\n"
+            "out_time_us=5500000\n"
+            "progress=continue\n"
+        )
+
+        def wait(self) -> int:
+            return 0
+
+    def fake_popen(
         command: list[str],
         *,
-        check: bool,
         stderr: object,
         text: bool,
         encoding: str | None = None,
@@ -3094,38 +3105,71 @@ def test_run_ffmpeg_hides_progress_unless_verbose(monkeypatch: pytest.MonkeyPatc
         captured.update(
             {
                 "command": command,
-                "check": check,
                 "stderr": stderr,
                 "text": text,
                 "encoding": encoding,
                 "errors": errors,
             }
         )
-        return subprocess.CompletedProcess(command, 0, stderr="")
+        return FakeProcess()
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+    output = StringIO()
 
-    assert run_ffmpeg(["ffmpeg", "-version"]) == 0
+    result = run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"], duration=10, stderr=output)
+
+    assert result == 0
+    assert result.stderr_tail == "ffmpeg diagnostic"
+    assert output.getvalue() == "Encoding: 10%\nEncoding: 50%\nEncoding: 100%\n"
     assert captured == {
-        "command": ["ffmpeg", "-version"],
-        "check": False,
+        "command": ["ffmpeg", "-i", "audio.wav", "-progress", "pipe:2", "-nostats", "out.mp4"],
         "stderr": subprocess.PIPE,
         "text": True,
         "encoding": "utf-8",
         "errors": "replace",
     }
 
+
+def test_run_ffmpeg_verbose_inherits_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
     assert run_ffmpeg(["ffmpeg", "-version"], verbose=True) == 0
     assert captured["stderr"] is None
+
+
+def test_run_ffmpeg_without_duration_streams_silently(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeProcess:
+        stderr = StringIO("out_time_us=5000000\nprogress=end\n")
+
+        def wait(self) -> int:
+            return 0
+
+    monkeypatch.setattr("subprocess.Popen", lambda *_args, **_kwargs: FakeProcess())
+    output = StringIO()
+
+    result = run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"], stderr=output)
+
+    assert result == 0
+    assert result.stderr_tail == ""
+    assert output.getvalue() == ""
 
 
 def test_run_ffmpeg_keeps_bounded_error_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     ffmpeg_lines = [f"line {index}" for index in range(FFMPEG_ERROR_TAIL_LINES + 3)]
 
-    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 1, stderr="\n".join(ffmpeg_lines))
+    class FakeProcess:
+        stderr = StringIO("\n".join(ffmpeg_lines))
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+        def wait(self) -> int:
+            return 1
+
+    monkeypatch.setattr("subprocess.Popen", lambda *_args, **_kwargs: FakeProcess())
 
     result = run_ffmpeg(["ffmpeg", "-version"])
 
@@ -3134,20 +3178,20 @@ def test_run_ffmpeg_keeps_bounded_error_tail(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_run_ffmpeg_reports_missing_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def fake_popen(_command: list[str], **_kwargs: object) -> object:
         raise FileNotFoundError(2, "The system cannot find the file specified")
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
 
     with pytest.raises(YaatvError, match="FFmpeg was not found"):
         run_ffmpeg(["ffmpeg", "-version"])
 
 
 def test_run_ffmpeg_reports_unrunnable_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+    def fake_popen(_command: list[str], **_kwargs: object) -> object:
         raise PermissionError(13, "Access is denied")
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
 
     with pytest.raises(YaatvError, match="Could not run FFmpeg"):
         run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"])

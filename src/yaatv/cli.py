@@ -14,6 +14,7 @@ import sys
 import tempfile
 import urllib.request
 import zipfile
+from collections import deque
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
@@ -94,6 +95,20 @@ MAX_FILENAME_LENGTH = 200
 FFMPEG_DOWNLOAD_PAGE = "https://ffmpeg.org/download.html"
 FFMPEG_DOWNLOAD_TIMEOUT_SECONDS = 60
 FFMPEG_ERROR_TAIL_LINES = 20
+FFMPEG_PROGRESS_KEYS = {
+    "bitrate",
+    "drop_frames",
+    "dup_frames",
+    "fps",
+    "frame",
+    "out_time",
+    "out_time_ms",
+    "out_time_us",
+    "progress",
+    "speed",
+    "stream_0_0_q",
+    "total_size",
+}
 TOOL_HEALTH_TIMEOUT_SECONDS = 5
 FFMPEG_DOWNLOAD_USER_AGENT = f"yaatv/{__version__}"
 WINDOWS_FFMPEG_ARCHIVE_URL = (
@@ -1843,12 +1858,44 @@ def _tail_output(output: str | None, *, max_lines: int = FFMPEG_ERROR_TAIL_LINES
     return "\n".join(lines[-max_lines:])
 
 
-def run_ffmpeg(command: Sequence[str], *, verbose: bool = False) -> FFmpegResult:
+def _progress_command(command: Sequence[str]) -> list[str]:
+    if len(command) < 2:
+        return list(command)
+    return [*command[:-1], "-progress", "pipe:2", "-nostats", command[-1]]
+
+
+def _progress_percent(line: str, duration: float | None) -> int | None:
+    if duration is None or duration <= 0 or not line.startswith("out_time_us="):
+        return None
     try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            stderr=None if verbose else subprocess.PIPE,
+        elapsed = int(line.partition("=")[2]) / 1_000_000
+    except ValueError:
+        return None
+    return min(99, max(0, int(elapsed / duration * 100)))
+
+
+def run_ffmpeg(
+    command: Sequence[str],
+    *,
+    verbose: bool = False,
+    duration: float | None = None,
+    stderr: TextIO = sys.stderr,
+) -> FFmpegResult:
+    try:
+        if verbose:
+            completed = subprocess.run(
+                command,
+                check=False,
+                stderr=None,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )  # nosec B603
+            return FFmpegResult(completed.returncode)
+
+        process = subprocess.Popen(
+            _progress_command(command),
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -1860,7 +1907,25 @@ def run_ffmpeg(command: Sequence[str], *, verbose: bool = False) -> FFmpegResult
         ) from exc
     except OSError as exc:
         raise YaatvError(f"Could not run FFmpeg: {exc}") from exc
-    return FFmpegResult(completed.returncode, _tail_output(completed.stderr))
+
+    if process.stderr is None:
+        raise YaatvError("Could not read FFmpeg output.")
+
+    tail: deque[str] = deque(maxlen=FFMPEG_ERROR_TAIL_LINES)
+    last_reported = -10
+    for raw_line in process.stderr:
+        line = raw_line.rstrip("\r\n")
+        percent = _progress_percent(line, duration)
+        if percent is not None and percent >= last_reported + 10:
+            last_reported = percent - (percent % 10)
+            print(f"Encoding: {last_reported}%", file=stderr, flush=True)
+        if line.partition("=")[0] not in FFMPEG_PROGRESS_KEYS:
+            tail.append(line)
+
+    returncode = process.wait()
+    if returncode == 0 and duration is not None:
+        print("Encoding: 100%", file=stderr, flush=True)
+    return FFmpegResult(returncode, "\n".join(line for line in tail if line))
 
 
 def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
@@ -2218,7 +2283,7 @@ def run(
 
         try:
             print("Encoding...", file=stderr)
-            ffmpeg_result = run_ffmpeg(command, verbose=args.verbose)
+            ffmpeg_result = run_ffmpeg(command, verbose=args.verbose, duration=output_duration, stderr=stderr)
             exit_code = int(ffmpeg_result)
             if exit_code != 0:
                 if not args.verbose:
