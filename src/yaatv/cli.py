@@ -18,7 +18,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TextIO
+from typing import Any, TextIO, TypeVar
 
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
@@ -102,23 +102,47 @@ WINDOWS_FFMPEG_ARCHIVE_URL = (
     "ffmpeg-8.1.2-essentials_build.zip"
 )
 WINDOWS_FFMPEG_ARCHIVE_SHA256 = "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
+WINDOWS_FFMPEG_FALLBACK_URL = (
+    "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-8.1.2-essentials_build.zip"
+)
+WINDOWS_FFMPEG_FALLBACK_SHA256 = "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
 WINDOWS_FFMPEG_TOOLS = ("ffmpeg.exe", "ffprobe.exe")
-LINUX_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffmpeg.zip"
-LINUX_FFMPEG_ARCHIVE_SHA256 = "18bec7d5c2ab3b24d277466b758394e109b0479133b98d155c5540ed3013fa74"
-LINUX_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffprobe.zip"
-LINUX_FFPROBE_ARCHIVE_SHA256 = "227c122cabb36444d7dee7f5c9c9db9e36e15ab7a9b43eb2196936fb177f9ad3"
-MACOS_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
-MACOS_FFMPEG_ARCHIVE_SHA256 = "8cb711bfa6f66033112d708dc275220419d0fdb49c5b752f8db25f11a92d321f"
-MACOS_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffprobe.zip"
-MACOS_FFPROBE_ARCHIVE_SHA256 = "e9b9b83fef584c367b27c683a1172921b4f48fa8bd5df6712ef54e63b915ea50"
+LINUX_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip"
+LINUX_FFMPEG_ARCHIVE_SHA256 = "fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f"
+LINUX_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip"
+LINUX_FFPROBE_ARCHIVE_SHA256 = "3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32"
+LINUX_FFMPEG_FALLBACK_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffmpeg.zip"
+LINUX_FFMPEG_FALLBACK_SHA256 = "18bec7d5c2ab3b24d277466b758394e109b0479133b98d155c5540ed3013fa74"
+LINUX_FFPROBE_FALLBACK_URL = "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffprobe.zip"
+LINUX_FFPROBE_FALLBACK_SHA256 = "227c122cabb36444d7dee7f5c9c9db9e36e15ab7a9b43eb2196936fb177f9ad3"
+MACOS_FFMPEG_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip"
+MACOS_FFMPEG_ARCHIVE_SHA256 = "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4"
+MACOS_FFPROBE_ARCHIVE_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffprobe.zip"
+MACOS_FFPROBE_ARCHIVE_SHA256 = "2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd"
+MACOS_FFMPEG_FALLBACK_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
+MACOS_FFMPEG_FALLBACK_SHA256 = "8cb711bfa6f66033112d708dc275220419d0fdb49c5b752f8db25f11a92d321f"
+MACOS_FFPROBE_FALLBACK_URL = "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffprobe.zip"
+MACOS_FFPROBE_FALLBACK_SHA256 = "e9b9b83fef584c367b27c683a1172921b4f48fa8bd5df6712ef54e63b915ea50"
+MACOS_EVERMEET_FFMPEG_URL = "https://evermeet.cx/ffmpeg/ffmpeg-9.0.2.zip"
+MACOS_EVERMEET_FFMPEG_SHA256 = "4acc0be580f9b2788029eb7bd4d645ff87968911b0a62aeeb3940d42d54558d5"
+MACOS_EVERMEET_FFPROBE_URL = "https://evermeet.cx/ffmpeg/ffprobe-9.0.2.zip"
+MACOS_EVERMEET_FFPROBE_SHA256 = "24a9c968cd4da72d99c7245e914b921815835eb6dff01d99868031aebaf1d439"
 MACOS_ARM64_FFMPEG_ARCHIVE_URL = (
+    "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffmpeg.zip"
+)
+MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 = "c8ed4c4e6978a03c485edbfe4e0a5dc2380f8a30bba5150531b31b094492d924"
+MACOS_ARM64_FFPROBE_ARCHIVE_URL = (
+    "https://ffmpeg.martin-riedl.de/download/macos/arm64/1789931890_9.0.2/ffprobe.zip"
+)
+MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 = "fcbe839537485eaee7a7a8bc5cbc0f90d53617e80943e8a5b2e31cb851197ea6"
+MACOS_ARM64_FFMPEG_FALLBACK_URL = (
     "https://ffmpeg.martin-riedl.de/download/macos/arm64/1778761665_8.1.1/ffmpeg.zip"
 )
-MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 = "a05b1a47bb3ac89a95a55eec713f8bbb347051bb07015f3b7d08fb62ed81a21e"
-MACOS_ARM64_FFPROBE_ARCHIVE_URL = (
+MACOS_ARM64_FFMPEG_FALLBACK_SHA256 = "a05b1a47bb3ac89a95a55eec713f8bbb347051bb07015f3b7d08fb62ed81a21e"
+MACOS_ARM64_FFPROBE_FALLBACK_URL = (
     "https://ffmpeg.martin-riedl.de/download/macos/arm64/1778761665_8.1.1/ffprobe.zip"
 )
-MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 = "135e70d2518beeb568183952dbc4bdeca1628dd49a7376d57e6b27dbc57d209f"
+MACOS_ARM64_FFPROBE_FALLBACK_SHA256 = "135e70d2518beeb568183952dbc4bdeca1628dd49a7376d57e6b27dbc57d209f"
 UNIX_FFMPEG_TOOLS = ("ffmpeg", "ffprobe")
 
 
@@ -200,6 +224,94 @@ class ToolHealth:
     state: str  # one of: "missing", "blocked", "failed", "ok"
     version: str | None = None
     detail: str | None = None
+
+
+@dataclass(frozen=True)
+class WindowsFFmpegSource:
+    name: str
+    archive_url: str
+    expected_sha256: str
+
+
+@dataclass(frozen=True)
+class UnixFFmpegSource:
+    name: str
+    ffmpeg_archive_url: str
+    ffmpeg_expected_sha256: str
+    ffprobe_archive_url: str
+    ffprobe_expected_sha256: str
+
+
+WINDOWS_FFMPEG_SOURCES: tuple[WindowsFFmpegSource, ...] = (
+    WindowsFFmpegSource(
+        name="GyanD GitHub",
+        archive_url=WINDOWS_FFMPEG_ARCHIVE_URL,
+        expected_sha256=WINDOWS_FFMPEG_ARCHIVE_SHA256,
+    ),
+    WindowsFFmpegSource(
+        name="gyan.dev mirror",
+        archive_url=WINDOWS_FFMPEG_FALLBACK_URL,
+        expected_sha256=WINDOWS_FFMPEG_FALLBACK_SHA256,
+    ),
+)
+
+LINUX_FFMPEG_SOURCES: tuple[UnixFFmpegSource, ...] = (
+    UnixFFmpegSource(
+        name="Martin Riedl (9.0.2)",
+        ffmpeg_archive_url=LINUX_FFMPEG_ARCHIVE_URL,
+        ffmpeg_expected_sha256=LINUX_FFMPEG_ARCHIVE_SHA256,
+        ffprobe_archive_url=LINUX_FFPROBE_ARCHIVE_URL,
+        ffprobe_expected_sha256=LINUX_FFPROBE_ARCHIVE_SHA256,
+    ),
+    UnixFFmpegSource(
+        name="Martin Riedl (9.0.1)",
+        ffmpeg_archive_url=LINUX_FFMPEG_FALLBACK_URL,
+        ffmpeg_expected_sha256=LINUX_FFMPEG_FALLBACK_SHA256,
+        ffprobe_archive_url=LINUX_FFPROBE_FALLBACK_URL,
+        ffprobe_expected_sha256=LINUX_FFPROBE_FALLBACK_SHA256,
+    ),
+)
+
+MACOS_FFMPEG_SOURCES: tuple[UnixFFmpegSource, ...] = (
+    UnixFFmpegSource(
+        name="Martin Riedl (9.0.2)",
+        ffmpeg_archive_url=MACOS_FFMPEG_ARCHIVE_URL,
+        ffmpeg_expected_sha256=MACOS_FFMPEG_ARCHIVE_SHA256,
+        ffprobe_archive_url=MACOS_FFPROBE_ARCHIVE_URL,
+        ffprobe_expected_sha256=MACOS_FFPROBE_ARCHIVE_SHA256,
+    ),
+    UnixFFmpegSource(
+        name="Evermeet (9.0.2)",
+        ffmpeg_archive_url=MACOS_EVERMEET_FFMPEG_URL,
+        ffmpeg_expected_sha256=MACOS_EVERMEET_FFMPEG_SHA256,
+        ffprobe_archive_url=MACOS_EVERMEET_FFPROBE_URL,
+        ffprobe_expected_sha256=MACOS_EVERMEET_FFPROBE_SHA256,
+    ),
+    UnixFFmpegSource(
+        name="Martin Riedl (8.1.1)",
+        ffmpeg_archive_url=MACOS_FFMPEG_FALLBACK_URL,
+        ffmpeg_expected_sha256=MACOS_FFMPEG_FALLBACK_SHA256,
+        ffprobe_archive_url=MACOS_FFPROBE_FALLBACK_URL,
+        ffprobe_expected_sha256=MACOS_FFPROBE_FALLBACK_SHA256,
+    ),
+)
+
+MACOS_ARM64_FFMPEG_SOURCES: tuple[UnixFFmpegSource, ...] = (
+    UnixFFmpegSource(
+        name="Martin Riedl (9.0.2)",
+        ffmpeg_archive_url=MACOS_ARM64_FFMPEG_ARCHIVE_URL,
+        ffmpeg_expected_sha256=MACOS_ARM64_FFMPEG_ARCHIVE_SHA256,
+        ffprobe_archive_url=MACOS_ARM64_FFPROBE_ARCHIVE_URL,
+        ffprobe_expected_sha256=MACOS_ARM64_FFPROBE_ARCHIVE_SHA256,
+    ),
+    UnixFFmpegSource(
+        name="Martin Riedl (8.1.1)",
+        ffmpeg_archive_url=MACOS_ARM64_FFMPEG_FALLBACK_URL,
+        ffmpeg_expected_sha256=MACOS_ARM64_FFMPEG_FALLBACK_SHA256,
+        ffprobe_archive_url=MACOS_ARM64_FFPROBE_FALLBACK_URL,
+        ffprobe_expected_sha256=MACOS_ARM64_FFPROBE_FALLBACK_SHA256,
+    ),
+)
 
 
 # ---------------------------------------------------------------------------
@@ -789,11 +901,108 @@ def install_ffmpeg(
     raise YaatvError("yaatv --install-ffmpeg is not supported on this system.")
 
 
+T = TypeVar("T")
+
+
+def _install_with_fallbacks(
+    platform_label: str,
+    sources: Sequence[T],
+    installer: Callable[[T], Path],
+    stderr: TextIO,
+) -> Path:
+    errors: list[str] = []
+    last_exc: Exception | None = None
+
+    for index, source in enumerate(sources):
+        source_name = getattr(source, "name", "source")
+        try:
+            return installer(source)
+        except Exception as exc:
+            last_exc = exc
+            errors.append(f"{source_name}: {exc}")
+            if index < len(sources) - 1:
+                print(
+                    f"warning: FFmpeg download source '{source_name}' failed: {exc}. Trying fallback...",
+                    file=stderr,
+                )
+
+    if len(sources) == 1 and last_exc is not None:
+        raise last_exc
+
+    failures_summary = "\n  - ".join(errors)
+    raise YaatvError(f"All FFmpeg download sources for {platform_label} failed:\n  - {failures_summary}")
+
+
+def _install_windows_ffmpeg_source(
+    source: WindowsFFmpegSource,
+    install_dir: Path,
+    stderr: TextIO,
+) -> Path:
+    source_label = (
+        f"FFmpeg for Windows x64 ({source.name})"
+        if source.name and source.name != "custom source"
+        else "FFmpeg for Windows x64"
+    )
+    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
+        temp_dir = Path(temp_name)
+        archive_path = temp_dir / "ffmpeg.zip"
+        staging_dir = temp_dir / "bin"
+
+        _download_and_verify_archive(
+            source.archive_url, archive_path, source.expected_sha256, source_label, stderr
+        )
+        _extract_windows_ffmpeg_tools(archive_path, staging_dir)
+        return _finish_ffmpeg_install(
+            staging_dir, install_dir, WINDOWS_FFMPEG_TOOLS, executable=False, stderr=stderr
+        )
+
+
+def _install_unix_ffmpeg_source(
+    source: UnixFFmpegSource,
+    install_dir: Path,
+    stderr: TextIO,
+) -> Path:
+    ffmpeg_label = (
+        f"ffmpeg ({source.name})" if source.name and source.name != "custom source" else "ffmpeg"
+    )
+    ffprobe_label = (
+        f"ffprobe ({source.name})" if source.name and source.name != "custom source" else "ffprobe"
+    )
+    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
+        temp_dir = Path(temp_name)
+        staging_dir = temp_dir / "bin"
+        downloads = (
+            (
+                source.ffmpeg_archive_url,
+                temp_dir / "ffmpeg.zip",
+                source.ffmpeg_expected_sha256,
+                "ffmpeg",
+                ffmpeg_label,
+            ),
+            (
+                source.ffprobe_archive_url,
+                temp_dir / "ffprobe.zip",
+                source.ffprobe_expected_sha256,
+                "ffprobe",
+                ffprobe_label,
+            ),
+        )
+
+        for archive_url, archive_path, expected_sha256, tool_name, tool_label in downloads:
+            _download_and_verify_archive(archive_url, archive_path, expected_sha256, tool_label, stderr)
+            _extract_zip_tool(archive_path, staging_dir, tool_name)
+
+        return _finish_ffmpeg_install(
+            staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True, stderr=stderr
+        )
+
+
 def install_windows_ffmpeg(
     *,
     install_dir: Path | None = None,
-    archive_url: str = WINDOWS_FFMPEG_ARCHIVE_URL,
-    expected_sha256: str = WINDOWS_FFMPEG_ARCHIVE_SHA256,
+    archive_url: str | None = None,
+    expected_sha256: str | None = None,
+    sources: Sequence[WindowsFFmpegSource] | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
     if install_dir is None:
@@ -801,23 +1010,36 @@ def install_windows_ffmpeg(
             raise YaatvError("yaatv --install-ffmpeg is only supported on Windows x64.")
         install_dir = app_managed_ffmpeg_bin_dir()
 
-    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
-        temp_dir = Path(temp_name)
-        archive_path = temp_dir / "ffmpeg.zip"
-        staging_dir = temp_dir / "bin"
+    if sources is not None:
+        resolved_sources = tuple(sources)
+    elif archive_url is not None or expected_sha256 is not None:
+        resolved_sources = (
+            WindowsFFmpegSource(
+                name="custom source",
+                archive_url=archive_url or WINDOWS_FFMPEG_ARCHIVE_URL,
+                expected_sha256=expected_sha256 or WINDOWS_FFMPEG_ARCHIVE_SHA256,
+            ),
+        )
+    else:
+        resolved_sources = WINDOWS_FFMPEG_SOURCES
 
-        _download_and_verify_archive(archive_url, archive_path, expected_sha256, "FFmpeg for Windows x64", stderr)
-        _extract_windows_ffmpeg_tools(archive_path, staging_dir)
-        return _finish_ffmpeg_install(staging_dir, install_dir, WINDOWS_FFMPEG_TOOLS, executable=False, stderr=stderr)
+    target_dir = install_dir
+    return _install_with_fallbacks(
+        "Windows x64",
+        resolved_sources,
+        lambda src: _install_windows_ffmpeg_source(src, target_dir, stderr),
+        stderr,
+    )
 
 
 def install_linux_ffmpeg(
     *,
     install_dir: Path | None = None,
-    ffmpeg_archive_url: str = LINUX_FFMPEG_ARCHIVE_URL,
-    ffmpeg_expected_sha256: str = LINUX_FFMPEG_ARCHIVE_SHA256,
-    ffprobe_archive_url: str = LINUX_FFPROBE_ARCHIVE_URL,
-    ffprobe_expected_sha256: str = LINUX_FFPROBE_ARCHIVE_SHA256,
+    ffmpeg_archive_url: str | None = None,
+    ffmpeg_expected_sha256: str | None = None,
+    ffprobe_archive_url: str | None = None,
+    ffprobe_expected_sha256: str | None = None,
+    sources: Sequence[UnixFFmpegSource] | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
     if install_dir is None:
@@ -825,19 +1047,33 @@ def install_linux_ffmpeg(
             raise YaatvError("yaatv --install-ffmpeg is only supported on Linux x64.")
         install_dir = app_managed_ffmpeg_bin_dir()
 
-    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
-        temp_dir = Path(temp_name)
-        staging_dir = temp_dir / "bin"
-        downloads = (
-            (ffmpeg_archive_url, temp_dir / "ffmpeg.zip", ffmpeg_expected_sha256, "ffmpeg"),
-            (ffprobe_archive_url, temp_dir / "ffprobe.zip", ffprobe_expected_sha256, "ffprobe"),
+    if sources is not None:
+        resolved_sources = tuple(sources)
+    elif (
+        ffmpeg_archive_url is not None
+        or ffmpeg_expected_sha256 is not None
+        or ffprobe_archive_url is not None
+        or ffprobe_expected_sha256 is not None
+    ):
+        resolved_sources = (
+            UnixFFmpegSource(
+                name="custom source",
+                ffmpeg_archive_url=ffmpeg_archive_url or LINUX_FFMPEG_ARCHIVE_URL,
+                ffmpeg_expected_sha256=ffmpeg_expected_sha256 or LINUX_FFMPEG_ARCHIVE_SHA256,
+                ffprobe_archive_url=ffprobe_archive_url or LINUX_FFPROBE_ARCHIVE_URL,
+                ffprobe_expected_sha256=ffprobe_expected_sha256 or LINUX_FFPROBE_ARCHIVE_SHA256,
+            ),
         )
+    else:
+        resolved_sources = LINUX_FFMPEG_SOURCES
 
-        for archive_url, archive_path, expected_sha256, tool_name in downloads:
-            _download_and_verify_archive(archive_url, archive_path, expected_sha256, tool_name, stderr)
-            _extract_zip_tool(archive_path, staging_dir, tool_name)
-
-        return _finish_ffmpeg_install(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True, stderr=stderr)
+    target_dir = install_dir
+    return _install_with_fallbacks(
+        "Linux x64",
+        resolved_sources,
+        lambda src: _install_unix_ffmpeg_source(src, target_dir, stderr),
+        stderr,
+    )
 
 
 def install_macos_ffmpeg(
@@ -847,6 +1083,7 @@ def install_macos_ffmpeg(
     ffmpeg_expected_sha256: str | None = None,
     ffprobe_archive_url: str | None = None,
     ffprobe_expected_sha256: str | None = None,
+    sources: Sequence[UnixFFmpegSource] | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
     if install_dir is None:
@@ -854,32 +1091,45 @@ def install_macos_ffmpeg(
             raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64.")
         install_dir = app_managed_ffmpeg_bin_dir()
 
-    if ffmpeg_archive_url is None:
-        ffmpeg_archive_url = MACOS_ARM64_FFMPEG_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_URL
-    if ffmpeg_expected_sha256 is None:
-        ffmpeg_expected_sha256 = (
+    platform_label = "macOS arm64" if _is_arm64_machine() else "macOS x64"
+
+    if sources is not None:
+        resolved_sources = tuple(sources)
+    elif (
+        ffmpeg_archive_url is not None
+        or ffmpeg_expected_sha256 is not None
+        or ffprobe_archive_url is not None
+        or ffprobe_expected_sha256 is not None
+    ):
+        default_ffmpeg_url = MACOS_ARM64_FFMPEG_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_URL
+        default_ffmpeg_sha = (
             MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_SHA256
         )
-    if ffprobe_archive_url is None:
-        ffprobe_archive_url = MACOS_ARM64_FFPROBE_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_URL
-    if ffprobe_expected_sha256 is None:
-        ffprobe_expected_sha256 = (
+        default_ffprobe_url = (
+            MACOS_ARM64_FFPROBE_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_URL
+        )
+        default_ffprobe_sha = (
             MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_SHA256
         )
-
-    with tempfile.TemporaryDirectory(prefix="yaatv-ffmpeg-") as temp_name:
-        temp_dir = Path(temp_name)
-        staging_dir = temp_dir / "bin"
-        downloads = (
-            (ffmpeg_archive_url, temp_dir / "ffmpeg.zip", ffmpeg_expected_sha256, "ffmpeg"),
-            (ffprobe_archive_url, temp_dir / "ffprobe.zip", ffprobe_expected_sha256, "ffprobe"),
+        resolved_sources = (
+            UnixFFmpegSource(
+                name="custom source",
+                ffmpeg_archive_url=ffmpeg_archive_url or default_ffmpeg_url,
+                ffmpeg_expected_sha256=ffmpeg_expected_sha256 or default_ffmpeg_sha,
+                ffprobe_archive_url=ffprobe_archive_url or default_ffprobe_url,
+                ffprobe_expected_sha256=ffprobe_expected_sha256 or default_ffprobe_sha,
+            ),
         )
+    else:
+        resolved_sources = MACOS_ARM64_FFMPEG_SOURCES if _is_arm64_machine() else MACOS_FFMPEG_SOURCES
 
-        for archive_url, archive_path, expected_sha256, tool_name in downloads:
-            _download_and_verify_archive(archive_url, archive_path, expected_sha256, tool_name, stderr)
-            _extract_zip_tool(archive_path, staging_dir, tool_name)
-
-        return _finish_ffmpeg_install(staging_dir, install_dir, UNIX_FFMPEG_TOOLS, executable=True, stderr=stderr)
+    target_dir = install_dir
+    return _install_with_fallbacks(
+        platform_label,
+        resolved_sources,
+        lambda src: _install_unix_ffmpeg_source(src, target_dir, stderr),
+        stderr,
+    )
 
 
 def _download_and_verify_archive(

@@ -20,12 +20,15 @@ from yaatv.cli import (
     KNOWN_IMAGE_EXTENSIONS,
     LINUX_FFMPEG_ARCHIVE_SHA256,
     LINUX_FFMPEG_ARCHIVE_URL,
+    LINUX_FFMPEG_SOURCES,
     LINUX_FFPROBE_ARCHIVE_SHA256,
     LINUX_FFPROBE_ARCHIVE_URL,
     MACOS_ARM64_FFMPEG_ARCHIVE_URL,
+    MACOS_ARM64_FFMPEG_SOURCES,
     MACOS_ARM64_FFPROBE_ARCHIVE_URL,
     MACOS_FFMPEG_ARCHIVE_SHA256,
     MACOS_FFMPEG_ARCHIVE_URL,
+    MACOS_FFMPEG_SOURCES,
     MACOS_FFPROBE_ARCHIVE_SHA256,
     MACOS_FFPROBE_ARCHIVE_URL,
     MAX_FILENAME_LENGTH,
@@ -35,11 +38,14 @@ from yaatv.cli import (
     TOOL_HEALTH_TIMEOUT_SECONDS,
     WINDOWS_FFMPEG_ARCHIVE_SHA256,
     WINDOWS_FFMPEG_ARCHIVE_URL,
+    WINDOWS_FFMPEG_SOURCES,
     AudioMetadata,
     AudioPlan,
     FFmpegResult,
     OutputStats,
     ToolHealth,
+    UnixFFmpegSource,
+    WindowsFFmpegSource,
     YaatvError,
     _download_url,
     _install_staged_tools,
@@ -290,24 +296,24 @@ def test_windows_installer_uses_pinned_versioned_release_archive() -> None:
 
 def test_linux_installer_uses_pinned_versioned_release_archives() -> None:
     assert LINUX_FFMPEG_ARCHIVE_URL == (
-        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffmpeg.zip"
+        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffmpeg.zip"
     )
     assert LINUX_FFPROBE_ARCHIVE_URL == (
-        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1787074600_9.0.1/ffprobe.zip"
+        "https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2/ffprobe.zip"
     )
-    assert LINUX_FFMPEG_ARCHIVE_SHA256 == "18bec7d5c2ab3b24d277466b758394e109b0479133b98d155c5540ed3013fa74"
-    assert LINUX_FFPROBE_ARCHIVE_SHA256 == "227c122cabb36444d7dee7f5c9c9db9e36e15ab7a9b43eb2196936fb177f9ad3"
+    assert LINUX_FFMPEG_ARCHIVE_SHA256 == "fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f"
+    assert LINUX_FFPROBE_ARCHIVE_SHA256 == "3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32"
 
 
 def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
     assert MACOS_FFMPEG_ARCHIVE_URL == (
-        "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffmpeg.zip"
+        "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip"
     )
     assert MACOS_FFPROBE_ARCHIVE_URL == (
-        "https://ffmpeg.martin-riedl.de/download/macos/amd64/1778768838_8.1.1/ffprobe.zip"
+        "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffprobe.zip"
     )
-    assert MACOS_FFMPEG_ARCHIVE_SHA256 == "8cb711bfa6f66033112d708dc275220419d0fdb49c5b752f8db25f11a92d321f"
-    assert MACOS_FFPROBE_ARCHIVE_SHA256 == "e9b9b83fef584c367b27c683a1172921b4f48fa8bd5df6712ef54e63b915ea50"
+    assert MACOS_FFMPEG_ARCHIVE_SHA256 == "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4"
+    assert MACOS_FFPROBE_ARCHIVE_SHA256 == "2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd"
 
 
 def test_audio_and_image_are_required_for_encoding(
@@ -3447,3 +3453,314 @@ def test_format_file_size_uses_gb_at_exactly_one_gigabyte() -> None:
 
 def test_format_file_size_uses_gb_above_one_gigabyte() -> None:
     assert format_file_size(6 * 1024 * 1024 * 1024) == "6.0 GB"
+
+
+def test_windows_ffmpeg_fallback_on_download_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_bytes = _ffmpeg_zip_bytes()
+    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+    sources = (
+        WindowsFFmpegSource(
+            name="primary",
+            archive_url="https://example.invalid/primary.zip",
+            expected_sha256=expected_sha256,
+        ),
+        WindowsFFmpegSource(
+            name="fallback",
+            archive_url="https://example.invalid/fallback.zip",
+            expected_sha256=expected_sha256,
+        ),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        if "primary" in url:
+            raise OSError("connection refused")
+        destination.write_bytes(archive_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    assert install_windows_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr) == install_dir
+    output = stderr.getvalue()
+    assert "warning: FFmpeg download source 'primary' failed" in output
+    assert "Downloaded FFmpeg for Windows x64 (fallback)" in output
+    assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
+    assert (install_dir / "ffprobe.exe").read_bytes() == b"ffprobe"
+
+
+def test_windows_ffmpeg_fallback_on_checksum_mismatch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    archive_bytes = _ffmpeg_zip_bytes()
+    expected_sha256 = hashlib.sha256(archive_bytes).hexdigest()
+    sources = (
+        WindowsFFmpegSource(
+            name="primary",
+            archive_url="https://example.invalid/primary.zip",
+            expected_sha256=expected_sha256,
+        ),
+        WindowsFFmpegSource(
+            name="fallback",
+            archive_url="https://example.invalid/fallback.zip",
+            expected_sha256=expected_sha256,
+        ),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        if "primary" in url:
+            destination.write_bytes(b"corrupted or wrong bytes")
+        else:
+            destination.write_bytes(archive_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    assert install_windows_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr) == install_dir
+    output = stderr.getvalue()
+    assert "warning: FFmpeg download source 'primary' failed: FFmpeg archive checksum mismatch" in output
+    assert "Downloaded FFmpeg for Windows x64 (fallback)" in output
+    assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
+
+
+def test_windows_ffmpeg_all_sources_fail_raises_aggregate_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sources = (
+        WindowsFFmpegSource(name="mirror-1", archive_url="https://example.invalid/1.zip", expected_sha256="0" * 64),
+        WindowsFFmpegSource(name="mirror-2", archive_url="https://example.invalid/2.zip", expected_sha256="0" * 64),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        if "1.zip" in url:
+            raise OSError("server down 503")
+        destination.write_bytes(b"mismatch data")
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError) as exc_info:
+        install_windows_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr)
+
+    error_text = str(exc_info.value)
+    assert "All FFmpeg download sources for Windows x64 failed:" in error_text
+    expected_m1_err = "mirror-1: Could not download FFmpeg for Windows x64 (mirror-1): server down 503"
+    assert expected_m1_err in error_text
+    assert "mirror-2: FFmpeg archive checksum mismatch" in error_text
+
+
+def test_linux_ffmpeg_fallback_on_primary_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"linux-ffmpeg")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"linux-ffprobe")
+    ffmpeg_sha = hashlib.sha256(ffmpeg_bytes).hexdigest()
+    ffprobe_sha = hashlib.sha256(ffprobe_bytes).hexdigest()
+
+    sources = (
+        UnixFFmpegSource(
+            name="primary-linux",
+            ffmpeg_archive_url="https://example.invalid/p-ffmpeg.zip",
+            ffmpeg_expected_sha256=ffmpeg_sha,
+            ffprobe_archive_url="https://example.invalid/p-ffprobe.zip",
+            ffprobe_expected_sha256=ffprobe_sha,
+        ),
+        UnixFFmpegSource(
+            name="fallback-linux",
+            ffmpeg_archive_url="https://example.invalid/f-ffmpeg.zip",
+            ffmpeg_expected_sha256=ffmpeg_sha,
+            ffprobe_archive_url="https://example.invalid/f-ffprobe.zip",
+            ffprobe_expected_sha256=ffprobe_sha,
+        ),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        if "p-ffmpeg" in url:
+            raise OSError("DNS lookup failed")
+        if "f-ffmpeg" in url:
+            destination.write_bytes(ffmpeg_bytes)
+        elif "f-ffprobe" in url:
+            destination.write_bytes(ffprobe_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    assert install_linux_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr) == install_dir
+    output = stderr.getvalue()
+    assert "warning: FFmpeg download source 'primary-linux' failed" in output
+    assert "Downloaded ffmpeg (fallback-linux)" in output
+    assert "Downloaded ffprobe (fallback-linux)" in output
+    assert (install_dir / "ffmpeg").read_bytes() == b"linux-ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"linux-ffprobe"
+
+
+def test_linux_ffmpeg_all_sources_fail_raises_aggregate_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sources = (
+        UnixFFmpegSource(
+            name="primary",
+            ffmpeg_archive_url="https://example.invalid/1.zip",
+            ffmpeg_expected_sha256="0" * 64,
+            ffprobe_archive_url="https://example.invalid/1p.zip",
+            ffprobe_expected_sha256="0" * 64,
+        ),
+        UnixFFmpegSource(
+            name="fallback",
+            ffmpeg_archive_url="https://example.invalid/2.zip",
+            ffmpeg_expected_sha256="0" * 64,
+            ffprobe_archive_url="https://example.invalid/2p.zip",
+            ffprobe_expected_sha256="0" * 64,
+        ),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        raise OSError("network timeout")
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError) as exc_info:
+        install_linux_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr)
+
+    error_text = str(exc_info.value)
+    assert "All FFmpeg download sources for Linux x64 failed:" in error_text
+    assert "primary: Could not download ffmpeg (primary): network timeout" in error_text
+    assert "fallback: Could not download ffmpeg (fallback): network timeout" in error_text
+
+
+def test_macos_ffmpeg_fallback_on_primary_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"mac-ffmpeg")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"mac-ffprobe")
+    ffmpeg_sha = hashlib.sha256(ffmpeg_bytes).hexdigest()
+    ffprobe_sha = hashlib.sha256(ffprobe_bytes).hexdigest()
+
+    sources = (
+        UnixFFmpegSource(
+            name="primary-mac",
+            ffmpeg_archive_url="https://example.invalid/p-ffmpeg.zip",
+            ffmpeg_expected_sha256=ffmpeg_sha,
+            ffprobe_archive_url="https://example.invalid/p-ffprobe.zip",
+            ffprobe_expected_sha256=ffprobe_sha,
+        ),
+        UnixFFmpegSource(
+            name="fallback-mac",
+            ffmpeg_archive_url="https://example.invalid/f-ffmpeg.zip",
+            ffmpeg_expected_sha256=ffmpeg_sha,
+            ffprobe_archive_url="https://example.invalid/f-ffprobe.zip",
+            ffprobe_expected_sha256=ffprobe_sha,
+        ),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        if "p-ffmpeg" in url:
+            raise OSError("404 Not Found")
+        if "f-ffmpeg" in url:
+            destination.write_bytes(ffmpeg_bytes)
+        elif "f-ffprobe" in url:
+            destination.write_bytes(ffprobe_bytes)
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    assert install_macos_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr) == install_dir
+    output = stderr.getvalue()
+    assert "warning: FFmpeg download source 'primary-mac' failed" in output
+    assert "Downloaded ffmpeg (fallback-mac)" in output
+    assert "Downloaded ffprobe (fallback-mac)" in output
+    assert (install_dir / "ffmpeg").read_bytes() == b"mac-ffmpeg"
+    assert (install_dir / "ffprobe").read_bytes() == b"mac-ffprobe"
+
+
+def test_macos_ffmpeg_all_sources_fail_raises_aggregate_error(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sources = (
+        UnixFFmpegSource(
+            name="mirror-1",
+            ffmpeg_archive_url="https://example.invalid/1.zip",
+            ffmpeg_expected_sha256="0" * 64,
+            ffprobe_archive_url="https://example.invalid/1p.zip",
+            ffprobe_expected_sha256="0" * 64,
+        ),
+        UnixFFmpegSource(
+            name="mirror-2",
+            ffmpeg_archive_url="https://example.invalid/2.zip",
+            ffmpeg_expected_sha256="0" * 64,
+            ffprobe_archive_url="https://example.invalid/2p.zip",
+            ffprobe_expected_sha256="0" * 64,
+        ),
+    )
+
+    def download(url: str, destination: Path) -> None:
+        raise OSError("service unavailable")
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    install_dir = tmp_path / "yaatv" / "bin"
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError) as exc_info:
+        install_macos_ffmpeg(install_dir=install_dir, sources=sources, stderr=stderr)
+
+    error_text = str(exc_info.value)
+    assert "All FFmpeg download sources for" in error_text
+    assert "mirror-1: Could not download ffmpeg (mirror-1): service unavailable" in error_text
+    assert "mirror-2: Could not download ffmpeg (mirror-2): service unavailable" in error_text
+
+
+def test_configured_ffmpeg_sources_validity() -> None:
+    assert len(WINDOWS_FFMPEG_SOURCES) >= 2
+    for source in WINDOWS_FFMPEG_SOURCES:
+        assert source.name
+        assert source.archive_url.startswith("https://")
+        assert len(source.expected_sha256) == 64
+        int(source.expected_sha256, 16)
+
+    assert len(LINUX_FFMPEG_SOURCES) >= 2
+    for source in LINUX_FFMPEG_SOURCES:
+        assert source.name
+        assert source.ffmpeg_archive_url.startswith("https://")
+        assert source.ffprobe_archive_url.startswith("https://")
+        assert len(source.ffmpeg_expected_sha256) == 64
+        assert len(source.ffprobe_expected_sha256) == 64
+        int(source.ffmpeg_expected_sha256, 16)
+        int(source.ffprobe_expected_sha256, 16)
+
+    assert len(MACOS_FFMPEG_SOURCES) >= 2
+    for source in MACOS_FFMPEG_SOURCES:
+        assert source.name
+        assert source.ffmpeg_archive_url.startswith("https://")
+        assert source.ffprobe_archive_url.startswith("https://")
+        assert len(source.ffmpeg_expected_sha256) == 64
+        assert len(source.ffprobe_expected_sha256) == 64
+        int(source.ffmpeg_expected_sha256, 16)
+        int(source.ffprobe_expected_sha256, 16)
+
+    assert len(MACOS_ARM64_FFMPEG_SOURCES) >= 2
+    for source in MACOS_ARM64_FFMPEG_SOURCES:
+        assert source.name
+        assert source.ffmpeg_archive_url.startswith("https://")
+        assert source.ffprobe_archive_url.startswith("https://")
+        assert len(source.ffmpeg_expected_sha256) == 64
+        assert len(source.ffprobe_expected_sha256) == 64
+        int(source.ffmpeg_expected_sha256, 16)
+        int(source.ffprobe_expected_sha256, 16)
