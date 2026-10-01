@@ -44,13 +44,19 @@ from yaatv.cli import (
     AudioPlan,
     FFmpegResult,
     OutputStats,
+    PlatformInfo,
     ToolHealth,
     UnixFFmpegSource,
     WindowsFFmpegSource,
     YaatvError,
     _download_url,
+    _get_platform_info,
     _install_staged_tools,
+    _install_unix_ffmpeg,
+    _resolve_unix_ffmpeg_sources,
+    _resolve_windows_ffmpeg_sources,
     _should_pause_after_run,
+    app_managed_ffmpeg_bin_dir,
     background_color,
     build_ffmpeg_command,
     check_tool_health,
@@ -65,6 +71,7 @@ from yaatv.cli import (
     format_file_size,
     format_output_stats,
     input_format_warnings,
+    install_ffmpeg,
     install_linux_ffmpeg,
     install_macos_ffmpeg,
     install_windows_ffmpeg,
@@ -85,6 +92,7 @@ from yaatv.cli import (
     run_ffmpeg,
     run_scry,
     sanitize_filename,
+    supports_app_managed_ffmpeg_install,
     validate_image,
     verify_output_stats,
 )
@@ -3885,3 +3893,226 @@ def test_configured_ffmpeg_sources_validity() -> None:
         assert len(source.ffprobe_expected_sha256) == 64
         int(source.ffmpeg_expected_sha256, 16)
         int(source.ffprobe_expected_sha256, 16)
+
+
+def test_get_platform_info_detection() -> None:
+    # Windows
+    win_x64 = _get_platform_info(os_name="nt", platform_name="win32", machine_name="amd64")
+    assert win_x64 == PlatformInfo(os_family="windows", arch="x64", label="Windows x64", is_supported=True)
+
+    win_arm64 = _get_platform_info(os_name="nt", platform_name="win32", machine_name="arm64")
+    assert win_arm64 == PlatformInfo(os_family="windows", arch="arm64", label="Windows arm64", is_supported=False)
+
+    # Linux
+    linux_x64 = _get_platform_info(os_name="posix", platform_name="linux", machine_name="x86_64")
+    assert linux_x64 == PlatformInfo(os_family="linux", arch="x64", label="Linux x64", is_supported=True)
+
+    linux_arm64 = _get_platform_info(os_name="posix", platform_name="linux", machine_name="aarch64")
+    assert linux_arm64 == PlatformInfo(os_family="linux", arch="arm64", label="Linux arm64", is_supported=False)
+
+    # macOS
+    mac_x64 = _get_platform_info(os_name="posix", platform_name="darwin", machine_name="x86_64")
+    assert mac_x64 == PlatformInfo(os_family="macos", arch="x64", label="macOS x64", is_supported=True)
+
+    mac_arm64 = _get_platform_info(os_name="posix", platform_name="darwin", machine_name="arm64")
+    assert mac_arm64 == PlatformInfo(os_family="macos", arch="arm64", label="macOS arm64", is_supported=True)
+
+    mac_other = _get_platform_info(os_name="posix", platform_name="darwin", machine_name="riscv")
+    assert mac_other == PlatformInfo(os_family="macos", arch="other", label="macOS other", is_supported=False)
+
+    # Other / unsupported
+    other = _get_platform_info(os_name="posix", platform_name="freebsd", machine_name="x86_64")
+    assert other.os_family == "other"
+    assert other.arch == "x64"
+    assert other.is_supported is False
+
+
+def test_supports_app_managed_ffmpeg_install_delegates(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="windows", arch="x64", label="Windows x64", is_supported=True),
+    )
+    assert supports_app_managed_ffmpeg_install() is True
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="linux", arch="arm64", label="Linux arm64", is_supported=False),
+    )
+    assert supports_app_managed_ffmpeg_install() is False
+
+
+def test_app_managed_ffmpeg_bin_dir_platform_error_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="windows", arch="arm64", label="Windows arm64", is_supported=False),
+    )
+    with pytest.raises(YaatvError, match=r"^yaatv --install-ffmpeg is only supported on Windows x64\.$"):
+        app_managed_ffmpeg_bin_dir()
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="linux", arch="arm64", label="Linux arm64", is_supported=False),
+    )
+    with pytest.raises(YaatvError, match=r"^yaatv --install-ffmpeg is only supported on Linux x64\.$"):
+        app_managed_ffmpeg_bin_dir()
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="macos", arch="other", label="macOS other", is_supported=False),
+    )
+    with pytest.raises(
+        YaatvError, match=r"^yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64\.$"
+    ):
+        app_managed_ffmpeg_bin_dir()
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="other", arch="x64", label="freebsd x64", is_supported=False),
+    )
+    with pytest.raises(YaatvError, match=r"^yaatv --install-ffmpeg is not supported on this system\.$"):
+        app_managed_ffmpeg_bin_dir()
+
+
+def test_install_ffmpeg_dispatches_by_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    dispatched: list[str] = []
+
+    monkeypatch.setattr(
+        "yaatv.cli.install_windows_ffmpeg",
+        lambda **_kwargs: dispatched.append("windows") or tmp_path,
+    )
+    monkeypatch.setattr(
+        "yaatv.cli.install_linux_ffmpeg",
+        lambda **_kwargs: dispatched.append("linux") or tmp_path,
+    )
+    monkeypatch.setattr(
+        "yaatv.cli.install_macos_ffmpeg",
+        lambda **_kwargs: dispatched.append("macos") or tmp_path,
+    )
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="windows", arch="x64", label="Windows x64", is_supported=True),
+    )
+    install_ffmpeg(install_dir=tmp_path)
+    assert dispatched == ["windows"]
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="linux", arch="x64", label="Linux x64", is_supported=True),
+    )
+    install_ffmpeg(install_dir=tmp_path)
+    assert dispatched == ["windows", "linux"]
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="macos", arch="arm64", label="macOS arm64", is_supported=True),
+    )
+    install_ffmpeg(install_dir=tmp_path)
+    assert dispatched == ["windows", "linux", "macos"]
+
+    monkeypatch.setattr(
+        "yaatv.cli._get_platform_info",
+        lambda: PlatformInfo(os_family="other", arch="x64", label="Other x64", is_supported=False),
+    )
+    with pytest.raises(YaatvError, match="yaatv --install-ffmpeg is not supported on this system"):
+        install_ffmpeg(install_dir=tmp_path)
+
+
+def test_resolve_windows_ffmpeg_sources() -> None:
+    # Default sources
+    defaults = _resolve_windows_ffmpeg_sources()
+    assert defaults == WINDOWS_FFMPEG_SOURCES
+
+    # Explicit sources override
+    custom_sources = (
+        WindowsFFmpegSource(name="custom", archive_url="https://example.com/a.zip", expected_sha256="a" * 64),
+    )
+    assert _resolve_windows_ffmpeg_sources(sources=custom_sources) == custom_sources
+
+    # Custom archive url override
+    custom_url = _resolve_windows_ffmpeg_sources(archive_url="https://example.com/custom.zip")
+    assert len(custom_url) == 1
+    assert custom_url[0].name == "custom source"
+    assert custom_url[0].archive_url == "https://example.com/custom.zip"
+    assert custom_url[0].expected_sha256 == WINDOWS_FFMPEG_ARCHIVE_SHA256
+
+
+def test_resolve_unix_ffmpeg_sources() -> None:
+    # Default sources
+    defaults = _resolve_unix_ffmpeg_sources(
+        default_sources=LINUX_FFMPEG_SOURCES,
+        default_ffmpeg_url=LINUX_FFMPEG_ARCHIVE_URL,
+        default_ffmpeg_sha=LINUX_FFMPEG_ARCHIVE_SHA256,
+        default_ffprobe_url=LINUX_FFPROBE_ARCHIVE_URL,
+        default_ffprobe_sha=LINUX_FFPROBE_ARCHIVE_SHA256,
+    )
+    assert defaults == LINUX_FFMPEG_SOURCES
+
+    # Explicit sources override
+    custom_sources = (
+        UnixFFmpegSource(
+            name="custom-unix",
+            ffmpeg_archive_url="https://example.com/ffmpeg.zip",
+            ffmpeg_expected_sha256="a" * 64,
+            ffprobe_archive_url="https://example.com/ffprobe.zip",
+            ffprobe_expected_sha256="b" * 64,
+        ),
+    )
+    assert _resolve_unix_ffmpeg_sources(
+        sources=custom_sources,
+        default_sources=LINUX_FFMPEG_SOURCES,
+        default_ffmpeg_url=LINUX_FFMPEG_ARCHIVE_URL,
+        default_ffmpeg_sha=LINUX_FFMPEG_ARCHIVE_SHA256,
+        default_ffprobe_url=LINUX_FFPROBE_ARCHIVE_URL,
+        default_ffprobe_sha=LINUX_FFPROBE_ARCHIVE_SHA256,
+    ) == custom_sources
+
+    # Custom archive url override
+    custom_url = _resolve_unix_ffmpeg_sources(
+        ffmpeg_archive_url="https://example.com/custom_ffmpeg.zip",
+        default_sources=LINUX_FFMPEG_SOURCES,
+        default_ffmpeg_url=LINUX_FFMPEG_ARCHIVE_URL,
+        default_ffmpeg_sha=LINUX_FFMPEG_ARCHIVE_SHA256,
+        default_ffprobe_url=LINUX_FFPROBE_ARCHIVE_URL,
+        default_ffprobe_sha=LINUX_FFPROBE_ARCHIVE_SHA256,
+    )
+    assert len(custom_url) == 1
+    assert custom_url[0].name == "custom source"
+    assert custom_url[0].ffmpeg_archive_url == "https://example.com/custom_ffmpeg.zip"
+    assert custom_url[0].ffmpeg_expected_sha256 == LINUX_FFMPEG_ARCHIVE_SHA256
+    assert custom_url[0].ffprobe_archive_url == LINUX_FFPROBE_ARCHIVE_URL
+    assert custom_url[0].ffprobe_expected_sha256 == LINUX_FFPROBE_ARCHIVE_SHA256
+
+
+def test_install_unix_ffmpeg_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"unix-ff")
+    ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"unix-fp")
+    ffmpeg_sha = hashlib.sha256(ffmpeg_bytes).hexdigest()
+    ffprobe_sha = hashlib.sha256(ffprobe_bytes).hexdigest()
+
+    archive_by_url = {
+        "https://example.com/ffmpeg.zip": ffmpeg_bytes,
+        "https://example.com/ffprobe.zip": ffprobe_bytes,
+    }
+
+    def download(url: str, destination: Path) -> None:
+        destination.write_bytes(archive_by_url[url])
+
+    monkeypatch.setattr("yaatv.cli._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+
+    install_dir = tmp_path / "yaatv" / "bin"
+    sources = (
+        UnixFFmpegSource(
+            name="test-unix",
+            ffmpeg_archive_url="https://example.com/ffmpeg.zip",
+            ffmpeg_expected_sha256=ffmpeg_sha,
+            ffprobe_archive_url="https://example.com/ffprobe.zip",
+            ffprobe_expected_sha256=ffprobe_sha,
+        ),
+    )
+
+    result = _install_unix_ffmpeg("Test Unix", install_dir, sources, stderr=StringIO())
+    assert result == install_dir
+    assert (install_dir / "ffmpeg").read_bytes() == b"unix-ff"
+    assert (install_dir / "ffprobe").read_bytes() == b"unix-fp"

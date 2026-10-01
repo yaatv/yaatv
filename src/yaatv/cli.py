@@ -242,6 +242,14 @@ class ToolHealth:
 
 
 @dataclass(frozen=True)
+class PlatformInfo:
+    os_family: str
+    arch: str
+    label: str
+    is_supported: bool
+
+
+@dataclass(frozen=True)
 class WindowsFFmpegSource:
     name: str
     archive_url: str
@@ -669,41 +677,92 @@ def tool_executable_name(name: str) -> str:
     return f"{name}.exe" if os.name == "nt" else name
 
 
+def _is_x64_machine(machine: str | None = None) -> bool:
+    target = machine if machine is not None else platform.machine()
+    return target.lower() in {"amd64", "x86_64"}
+
+
+def _is_arm64_machine(machine: str | None = None) -> bool:
+    target = machine if machine is not None else platform.machine()
+    return target.lower() in {"arm64", "aarch64"}
+
+
+def _get_platform_info(
+    *,
+    os_name: str | None = None,
+    platform_name: str | None = None,
+    machine_name: str | None = None,
+) -> PlatformInfo:
+    current_os = os.name if os_name is None else os_name
+    current_plat = sys.platform if platform_name is None else platform_name
+
+    if current_os == "nt" or current_plat.startswith("win"):
+        os_family = "windows"
+        canonical_os = "Windows"
+    elif current_plat == "darwin":
+        os_family = "macos"
+        canonical_os = "macOS"
+    elif current_plat.startswith("linux"):
+        os_family = "linux"
+        canonical_os = "Linux"
+    else:
+        os_family = "other"
+        canonical_os = platform.system() or current_plat
+
+    if machine_name is not None:
+        machine_lower = machine_name.lower()
+        if machine_lower in {"amd64", "x86_64"}:
+            arch = "x64"
+        elif machine_lower in {"arm64", "aarch64"}:
+            arch = "arm64"
+        else:
+            arch = "other"
+    else:
+        if _is_x64_machine():
+            arch = "x64"
+        elif _is_arm64_machine():
+            arch = "arm64"
+        else:
+            arch = "other"
+
+    label = f"{canonical_os} {arch}"
+    is_supported = (
+        (os_family == "windows" and arch == "x64")
+        or (os_family == "linux" and arch == "x64")
+        or (os_family == "macos" and arch in {"x64", "arm64"})
+    )
+    return PlatformInfo(
+        os_family=os_family,
+        arch=arch,
+        label=label,
+        is_supported=is_supported,
+    )
+
+
 def supports_app_managed_ffmpeg_install() -> bool:
-    if os.name == "nt" or sys.platform.startswith("linux"):
-        return _is_x64_machine()
-    if sys.platform == "darwin":
-        return _is_x64_machine() or _is_arm64_machine()
-    return False
+    return _get_platform_info().is_supported
 
 
 def app_managed_ffmpeg_bin_dir() -> Path:
-    if os.name == "nt":
-        if not _is_x64_machine():
+    info = _get_platform_info()
+    if info.os_family == "windows":
+        if info.arch != "x64":
             raise YaatvError("yaatv --install-ffmpeg is only supported on Windows x64.")
         return windows_ffmpeg_bin_dir()
 
-    if sys.platform == "darwin":
-        if not (_is_x64_machine() or _is_arm64_machine()):
+    if info.os_family == "macos":
+        if info.arch not in {"x64", "arm64"}:
             raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64.")
         return Path.home() / "Library" / "Application Support" / "yaatv" / "bin"
 
-    if sys.platform.startswith("linux"):
-        if not _is_x64_machine():
+    if info.os_family == "linux":
+        if info.arch != "x64":
             raise YaatvError("yaatv --install-ffmpeg is only supported on Linux x64.")
         data_home = os.environ.get("XDG_DATA_HOME")
         base_dir = Path(data_home).expanduser() if data_home else Path.home() / ".local" / "share"
         return base_dir / "yaatv" / "bin"
 
     raise YaatvError("yaatv --install-ffmpeg is not supported on this system.")
-
-
-def _is_x64_machine() -> bool:
-    return platform.machine().lower() in {"amd64", "x86_64"}
-
-
-def _is_arm64_machine() -> bool:
-    return platform.machine().lower() in {"arm64", "aarch64"}
 
 
 def windows_ffmpeg_bin_dir() -> Path:
@@ -907,11 +966,12 @@ def install_ffmpeg(
     install_dir: Path | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
-    if os.name == "nt":
+    info = _get_platform_info()
+    if info.os_family == "windows":
         return install_windows_ffmpeg(install_dir=install_dir, stderr=stderr)
-    if sys.platform.startswith("linux"):
+    if info.os_family == "linux":
         return install_linux_ffmpeg(install_dir=install_dir, stderr=stderr)
-    if sys.platform == "darwin":
+    if info.os_family == "macos":
         return install_macos_ffmpeg(install_dir=install_dir, stderr=stderr)
     raise YaatvError("yaatv --install-ffmpeg is not supported on this system.")
 
@@ -946,6 +1006,89 @@ def _install_with_fallbacks(
 
     failures_summary = "\n  - ".join(errors)
     raise YaatvError(f"All FFmpeg download sources for {platform_label} failed:\n  - {failures_summary}")
+
+
+def _validate_install_dir(target_os: str, install_dir: Path | None) -> Path:
+    if install_dir is not None:
+        return install_dir
+    info = _get_platform_info()
+    if target_os == "windows":
+        if info.os_family != "windows" or info.arch != "x64":
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Windows x64.")
+    elif target_os == "linux":
+        if info.os_family != "linux" or info.arch != "x64":
+            raise YaatvError("yaatv --install-ffmpeg is only supported on Linux x64.")
+    elif target_os == "macos":
+        if info.os_family != "macos" or info.arch not in {"x64", "arm64"}:
+            raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64.")
+    else:
+        raise YaatvError("yaatv --install-ffmpeg is not supported on this system.")
+    return app_managed_ffmpeg_bin_dir()
+
+
+def _resolve_windows_ffmpeg_sources(
+    *,
+    sources: Sequence[WindowsFFmpegSource] | None = None,
+    archive_url: str | None = None,
+    expected_sha256: str | None = None,
+    default_sources: Sequence[WindowsFFmpegSource] = WINDOWS_FFMPEG_SOURCES,
+    default_archive_url: str = WINDOWS_FFMPEG_ARCHIVE_URL,
+    default_expected_sha256: str = WINDOWS_FFMPEG_ARCHIVE_SHA256,
+) -> tuple[WindowsFFmpegSource, ...]:
+    if sources is not None:
+        return tuple(sources)
+    if archive_url is not None or expected_sha256 is not None:
+        return (
+            WindowsFFmpegSource(
+                name="custom source",
+                archive_url=archive_url or default_archive_url,
+                expected_sha256=expected_sha256 or default_expected_sha256,
+            ),
+        )
+    return tuple(default_sources)
+
+
+def _resolve_unix_ffmpeg_sources(
+    *,
+    sources: Sequence[UnixFFmpegSource] | None = None,
+    ffmpeg_archive_url: str | None = None,
+    ffmpeg_expected_sha256: str | None = None,
+    ffprobe_archive_url: str | None = None,
+    ffprobe_expected_sha256: str | None = None,
+    default_sources: Sequence[UnixFFmpegSource],
+    default_ffmpeg_url: str | None = None,
+    default_ffmpeg_sha: str | None = None,
+    default_ffprobe_url: str | None = None,
+    default_ffprobe_sha: str | None = None,
+) -> tuple[UnixFFmpegSource, ...]:
+    if sources is not None:
+        return tuple(sources)
+    if (
+        ffmpeg_archive_url is not None
+        or ffmpeg_expected_sha256 is not None
+        or ffprobe_archive_url is not None
+        or ffprobe_expected_sha256 is not None
+    ):
+        fallback_ffmpeg_url = default_ffmpeg_url or (default_sources[0].ffmpeg_archive_url if default_sources else "")
+        fallback_ffmpeg_sha = default_ffmpeg_sha or (
+            default_sources[0].ffmpeg_expected_sha256 if default_sources else ""
+        )
+        fallback_ffprobe_url = default_ffprobe_url or (
+            default_sources[0].ffprobe_archive_url if default_sources else ""
+        )
+        fallback_ffprobe_sha = default_ffprobe_sha or (
+            default_sources[0].ffprobe_expected_sha256 if default_sources else ""
+        )
+        return (
+            UnixFFmpegSource(
+                name="custom source",
+                ffmpeg_archive_url=ffmpeg_archive_url or fallback_ffmpeg_url,
+                ffmpeg_expected_sha256=ffmpeg_expected_sha256 or fallback_ffmpeg_sha,
+                ffprobe_archive_url=ffprobe_archive_url or fallback_ffprobe_url,
+                ffprobe_expected_sha256=ffprobe_expected_sha256 or fallback_ffprobe_sha,
+            ),
+        )
+    return tuple(default_sources)
 
 
 def _install_windows_ffmpeg_source(
@@ -1012,6 +1155,21 @@ def _install_unix_ffmpeg_source(
         )
 
 
+def _install_unix_ffmpeg(
+    platform_label: str,
+    install_dir: Path,
+    sources: Sequence[UnixFFmpegSource],
+    stderr: TextIO = sys.stderr,
+) -> Path:
+    target_dir = install_dir
+    return _install_with_fallbacks(
+        platform_label,
+        sources,
+        lambda src: _install_unix_ffmpeg_source(src, target_dir, stderr),
+        stderr,
+    )
+
+
 def install_windows_ffmpeg(
     *,
     install_dir: Path | None = None,
@@ -1020,25 +1178,12 @@ def install_windows_ffmpeg(
     sources: Sequence[WindowsFFmpegSource] | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
-    if install_dir is None:
-        if os.name != "nt" or not _is_x64_machine():
-            raise YaatvError("yaatv --install-ffmpeg is only supported on Windows x64.")
-        install_dir = app_managed_ffmpeg_bin_dir()
-
-    if sources is not None:
-        resolved_sources = tuple(sources)
-    elif archive_url is not None or expected_sha256 is not None:
-        resolved_sources = (
-            WindowsFFmpegSource(
-                name="custom source",
-                archive_url=archive_url or WINDOWS_FFMPEG_ARCHIVE_URL,
-                expected_sha256=expected_sha256 or WINDOWS_FFMPEG_ARCHIVE_SHA256,
-            ),
-        )
-    else:
-        resolved_sources = WINDOWS_FFMPEG_SOURCES
-
-    target_dir = install_dir
+    target_dir = _validate_install_dir("windows", install_dir)
+    resolved_sources = _resolve_windows_ffmpeg_sources(
+        sources=sources,
+        archive_url=archive_url,
+        expected_sha256=expected_sha256,
+    )
     return _install_with_fallbacks(
         "Windows x64",
         resolved_sources,
@@ -1057,37 +1202,24 @@ def install_linux_ffmpeg(
     sources: Sequence[UnixFFmpegSource] | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
-    if install_dir is None:
-        if not sys.platform.startswith("linux") or not _is_x64_machine():
-            raise YaatvError("yaatv --install-ffmpeg is only supported on Linux x64.")
-        install_dir = app_managed_ffmpeg_bin_dir()
-
-    if sources is not None:
-        resolved_sources = tuple(sources)
-    elif (
-        ffmpeg_archive_url is not None
-        or ffmpeg_expected_sha256 is not None
-        or ffprobe_archive_url is not None
-        or ffprobe_expected_sha256 is not None
-    ):
-        resolved_sources = (
-            UnixFFmpegSource(
-                name="custom source",
-                ffmpeg_archive_url=ffmpeg_archive_url or LINUX_FFMPEG_ARCHIVE_URL,
-                ffmpeg_expected_sha256=ffmpeg_expected_sha256 or LINUX_FFMPEG_ARCHIVE_SHA256,
-                ffprobe_archive_url=ffprobe_archive_url or LINUX_FFPROBE_ARCHIVE_URL,
-                ffprobe_expected_sha256=ffprobe_expected_sha256 or LINUX_FFPROBE_ARCHIVE_SHA256,
-            ),
-        )
-    else:
-        resolved_sources = LINUX_FFMPEG_SOURCES
-
-    target_dir = install_dir
-    return _install_with_fallbacks(
+    target_dir = _validate_install_dir("linux", install_dir)
+    resolved_sources = _resolve_unix_ffmpeg_sources(
+        sources=sources,
+        ffmpeg_archive_url=ffmpeg_archive_url,
+        ffmpeg_expected_sha256=ffmpeg_expected_sha256,
+        ffprobe_archive_url=ffprobe_archive_url,
+        ffprobe_expected_sha256=ffprobe_expected_sha256,
+        default_sources=LINUX_FFMPEG_SOURCES,
+        default_ffmpeg_url=LINUX_FFMPEG_ARCHIVE_URL,
+        default_ffmpeg_sha=LINUX_FFMPEG_ARCHIVE_SHA256,
+        default_ffprobe_url=LINUX_FFPROBE_ARCHIVE_URL,
+        default_ffprobe_sha=LINUX_FFPROBE_ARCHIVE_SHA256,
+    )
+    return _install_unix_ffmpeg(
         "Linux x64",
+        target_dir,
         resolved_sources,
-        lambda src: _install_unix_ffmpeg_source(src, target_dir, stderr),
-        stderr,
+        stderr=stderr,
     )
 
 
@@ -1101,49 +1233,32 @@ def install_macos_ffmpeg(
     sources: Sequence[UnixFFmpegSource] | None = None,
     stderr: TextIO = sys.stderr,
 ) -> Path:
-    if install_dir is None:
-        if sys.platform != "darwin" or not (_is_x64_machine() or _is_arm64_machine()):
-            raise YaatvError("yaatv --install-ffmpeg is only supported on macOS x64 and macOS arm64.")
-        install_dir = app_managed_ffmpeg_bin_dir()
+    target_dir = _validate_install_dir("macos", install_dir)
+    is_arm64 = _is_arm64_machine()
+    platform_label = "macOS arm64" if is_arm64 else "macOS x64"
+    default_sources = MACOS_ARM64_FFMPEG_SOURCES if is_arm64 else MACOS_FFMPEG_SOURCES
+    default_ffmpeg_url = MACOS_ARM64_FFMPEG_ARCHIVE_URL if is_arm64 else MACOS_FFMPEG_ARCHIVE_URL
+    default_ffmpeg_sha = MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 if is_arm64 else MACOS_FFMPEG_ARCHIVE_SHA256
+    default_ffprobe_url = MACOS_ARM64_FFPROBE_ARCHIVE_URL if is_arm64 else MACOS_FFPROBE_ARCHIVE_URL
+    default_ffprobe_sha = MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 if is_arm64 else MACOS_FFPROBE_ARCHIVE_SHA256
 
-    platform_label = "macOS arm64" if _is_arm64_machine() else "macOS x64"
-
-    if sources is not None:
-        resolved_sources = tuple(sources)
-    elif (
-        ffmpeg_archive_url is not None
-        or ffmpeg_expected_sha256 is not None
-        or ffprobe_archive_url is not None
-        or ffprobe_expected_sha256 is not None
-    ):
-        default_ffmpeg_url = MACOS_ARM64_FFMPEG_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_URL
-        default_ffmpeg_sha = (
-            MACOS_ARM64_FFMPEG_ARCHIVE_SHA256 if _is_arm64_machine() else MACOS_FFMPEG_ARCHIVE_SHA256
-        )
-        default_ffprobe_url = (
-            MACOS_ARM64_FFPROBE_ARCHIVE_URL if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_URL
-        )
-        default_ffprobe_sha = (
-            MACOS_ARM64_FFPROBE_ARCHIVE_SHA256 if _is_arm64_machine() else MACOS_FFPROBE_ARCHIVE_SHA256
-        )
-        resolved_sources = (
-            UnixFFmpegSource(
-                name="custom source",
-                ffmpeg_archive_url=ffmpeg_archive_url or default_ffmpeg_url,
-                ffmpeg_expected_sha256=ffmpeg_expected_sha256 or default_ffmpeg_sha,
-                ffprobe_archive_url=ffprobe_archive_url or default_ffprobe_url,
-                ffprobe_expected_sha256=ffprobe_expected_sha256 or default_ffprobe_sha,
-            ),
-        )
-    else:
-        resolved_sources = MACOS_ARM64_FFMPEG_SOURCES if _is_arm64_machine() else MACOS_FFMPEG_SOURCES
-
-    target_dir = install_dir
-    return _install_with_fallbacks(
+    resolved_sources = _resolve_unix_ffmpeg_sources(
+        sources=sources,
+        ffmpeg_archive_url=ffmpeg_archive_url,
+        ffmpeg_expected_sha256=ffmpeg_expected_sha256,
+        ffprobe_archive_url=ffprobe_archive_url,
+        ffprobe_expected_sha256=ffprobe_expected_sha256,
+        default_sources=default_sources,
+        default_ffmpeg_url=default_ffmpeg_url,
+        default_ffmpeg_sha=default_ffmpeg_sha,
+        default_ffprobe_url=default_ffprobe_url,
+        default_ffprobe_sha=default_ffprobe_sha,
+    )
+    return _install_unix_ffmpeg(
         platform_label,
+        target_dir,
         resolved_sources,
-        lambda src: _install_unix_ffmpeg_source(src, target_dir, stderr),
-        stderr,
+        stderr=stderr,
     )
 
 
