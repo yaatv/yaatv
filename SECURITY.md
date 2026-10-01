@@ -34,5 +34,5 @@ yaatv interacts with external binaries and user media files:
 - **Subprocess Execution**: yaatv invokes `ffmpeg` and `ffprobe` using structured argument lists (`list[str]`), avoiding `shell=True` to prevent command injection.
 - **Media Parsing**: yaatv inspects audio tags via `mutagen` and images via `Pillow`. Corrupted, malformed, or animated files are validated before encoding.
 - **FFmpeg Installer**: The `--install-ffmpeg` command fetches binaries over HTTPS from verified upstream sources and extracts them into local app data directories.
-- **Binary Releases**: Release executables are built through GitHub Actions with pinned dependencies and workflow actions. Checksums (`SHA256`) and provenance attestations are published with every release.
+- **Binary Releases**: Release executables are built through GitHub Actions with pinned dependencies and workflow actions. Checksums (`SHA256`), SPDX Software Bills of Materials (`.spdx.json`), and provenance attestations are published with every release.
 

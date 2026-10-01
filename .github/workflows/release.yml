@@ -277,7 +277,7 @@ jobs:
             --resolution 1080p \
             --no-warn
 
-      - name: Package release ZIP
+      - name: Assemble release package
         shell: bash
         run: |
           set -euo pipefail
@@ -316,6 +316,20 @@ jobs:
           Path("SOURCE.txt").write_text(source_notice, encoding="utf-8")
           PY
           cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$package_dir/"
+
+      - name: Generate SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: package/${{ matrix.package_name }}
+          format: spdx-json
+          output-file: release-assets/${{ matrix.package_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Package release ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
           python - <<'PY'
           from pathlib import Path
           from zipfile import ZIP_DEFLATED, ZipFile
@@ -328,11 +342,29 @@ jobs:
                       archive.write(path, path.relative_to(root).as_posix())
           PY
 
-      - name: Upload release package artifact
+      - name: Verify release package and SBOM
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip_file="release-assets/${{ matrix.package_name }}.zip"
+          sbom_file="release-assets/${{ matrix.package_name }}.spdx.json"
+          if [[ ! -s "$zip_file" ]]; then
+            echo "Error: Missing or empty release package: $zip_file" >&2
+            exit 1
+          fi
+          if [[ ! -s "$sbom_file" ]]; then
+            echo "Error: Missing or empty SBOM: $sbom_file" >&2
+            exit 1
+          fi
+          echo "Verified release package and SBOM exist: $zip_file, $sbom_file."
+
+      - name: Upload release package artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.package_name }}
-          path: release-assets/${{ matrix.package_name }}.zip
+          path: |
+            release-assets/${{ matrix.package_name }}.zip
+            release-assets/${{ matrix.package_name }}.spdx.json
           if-no-files-found: error
 
   release:
@@ -362,7 +394,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd release-assets && sha256sum *.zip > SHA256SUMS)
+          (cd release-assets && sha256sum *.zip *.spdx.json | sort -k2 > SHA256SUMS)
 
       - name: Sign checksums with PGP
         env:

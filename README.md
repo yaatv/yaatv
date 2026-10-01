@@ -271,7 +271,8 @@ workflows, and guidelines.
 ## Publishing
 
 Tagging a version that starts with `v` builds the Windows, Linux, macOS x64,
-and macOS arm64 assets, then attaches them to a GitHub release.
+and macOS arm64 assets, generates matching SPDX Software Bills of Materials (`.spdx.json`),
+and attaches them to a GitHub release alongside `SHA256SUMS`.
 
 ```sh
 git tag v<version>
