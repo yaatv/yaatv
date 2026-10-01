@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "yaatv"
-version = "0.6.4"
+dynamic = [
+  "version",
+]
 description = "Yet Another Audio To Video: combine audio and cover art into a YouTube-ready video."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -37,6 +39,9 @@ yaatv = "yaatv.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "yaatv.__version__" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

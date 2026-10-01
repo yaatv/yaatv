@@ -199,11 +199,6 @@ def _mark_installed_tools_healthy(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def _pyproject_version() -> str:
-    text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
-    return str(tomllib.loads(text)["project"]["version"])
-
-
 def test_project_requires_python_311() -> None:
     text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
     data = tomllib.loads(text)
@@ -212,14 +207,17 @@ def test_project_requires_python_311() -> None:
     assert data["tool"]["mypy"]["python_version"] == "3.11"
 
 
-def test_runtime_version_matches_project_metadata() -> None:
-    assert __version__ == _pyproject_version()
+def test_project_declares_dynamic_version_from_runtime() -> None:
+    text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    data = tomllib.loads(text)
+    assert "version" in data["project"].get("dynamic", [])
+    assert data["tool"]["setuptools"]["dynamic"]["version"]["attr"] == "yaatv.__version__"
+    assert re.match(r"^\d+\.\d+\.\d+", __version__)
 
 
-def test_readme_release_tag_matches_project_metadata() -> None:
+def test_readme_documents_generic_release_tag_publishing() -> None:
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
-
-    assert f"git tag v{_pyproject_version()}" in readme
+    assert "git tag v<version>" in readme
 
 
 def test_release_workflow_checks_tag_version_before_building() -> None:
@@ -229,7 +227,15 @@ def test_release_workflow_checks_tag_version_before_building() -> None:
 
     assert "Validate release tag version" in workflow
     assert "tag_version=\"${GITHUB_REF_NAME#v}\"" in workflow
-    assert "pyproject.toml" in workflow
+    assert "__version__" in workflow
+
+
+def test_check_script_supports_quality_and_build_only_flags() -> None:
+    script_path = Path(__file__).resolve().parents[1] / "scripts" / "check.py"
+    res = subprocess.run([sys.executable, str(script_path), "--help"], capture_output=True, text=True)
+    assert res.returncode == 0
+    assert "--quality-only" in res.stdout
+    assert "--build-only" in res.stdout
 
 
 def test_release_workflow_does_not_bundle_ffmpeg_tools() -> None:
@@ -276,6 +282,7 @@ def test_ci_workflow_includes_cross_platform_matrix() -> None:
     assert "brew install ffmpeg" in workflow
     assert "sudo apt-get install --yes ffmpeg" in workflow
     assert 'pytest -m "not integration"' in workflow
+    assert "scripts/check.py" in workflow
 
 
 def test_release_workflow_build_jobs_avoid_redundant_full_pytest() -> None:
@@ -284,6 +291,7 @@ def test_release_workflow_build_jobs_avoid_redundant_full_pytest() -> None:
     )
 
     gate_section, build_section = workflow.split("build:", 1)
+    assert "scripts/check.py" in gate_section
     assert "python -m pytest" in gate_section
     assert "python -m pytest" not in build_section
     assert "Smoke test CLI" in build_section
