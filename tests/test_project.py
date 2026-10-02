@@ -152,3 +152,35 @@ def test_ci_workflow_smoke_tests_cli_help_entrypoints() -> None:
     assert "yaatv --help" in workflow
     assert "python -m yaatv --help" in workflow
 
+
+def test_obsolete_website_and_deployment_files_are_removed() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    obsolete_paths = [
+        repo_root / "wrangler.jsonc",
+        repo_root / "docs" / "index.html",
+        repo_root / "docs" / "CNAME",
+        repo_root / "docs" / ".nojekyll",
+        repo_root / "docs" / "styles.css",
+        repo_root / "docs" / "robots.txt",
+        repo_root / "docs" / "sitemap.xml",
+        repo_root / "docs" / "download",
+        repo_root / "docs" / "faq",
+        repo_root / "docs" / "docs-assets" / "yaatv-sample.jpg",
+    ]
+    for path in obsolete_paths:
+        assert not path.exists(), f"Obsolete website file or directory should not exist: {path}"
+
+
+def test_core_engineering_docs_and_assets_remain() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    required_paths = [
+        repo_root / "docs" / "ARCHITECTURE.md",
+        repo_root / "docs" / "SECURITY_BASELINE.md",
+        repo_root / "docs" / "TESTING.md",
+        repo_root / "docs" / "docs-assets" / "yaatv.svg",
+    ]
+    for path in required_paths:
+        assert path.is_file(), f"Required engineering doc or asset missing: {path}"
+        assert path.stat().st_size > 0, f"Required file is empty: {path}"
+
+

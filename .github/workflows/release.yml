@@ -231,6 +231,7 @@ jobs:
           import math
           import struct
           import wave
+          from PIL import Image
 
           duration = 3
           sample_rate = 48000
@@ -246,6 +247,8 @@ jobs:
                   frames.extend(packed)
                   frames.extend(packed)
               audio.writeframes(frames)
+
+          Image.new("RGB", (320, 240), (24, 84, 128)).save("smoke-image.png", "PNG")
           PY
           if [[ "$RUNNER_OS" != "Windows" ]]; then
             chmod +x "$executable"
@@ -272,7 +275,7 @@ jobs:
           "$executable" --install-ffmpeg
           "$executable" \
             --audio smoke-audio.wav \
-            --image docs/docs-assets/yaatv-sample.jpg \
+            --image smoke-image.png \
             --output smoke-output.mp4 \
             --resolution 1080p \
             --no-warn

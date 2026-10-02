@@ -22,7 +22,7 @@ yaatv/
 │   ├── test_installer.py    # Managed FFmpeg installer, downloads, and rollback
 │   ├── test_workflow.py     # End-to-end run orchestration, dry-runs, and overwrite flows
 │   └── test_ffmpeg_integration.py # End-to-end integration tests requiring real FFmpeg/FFprobe
-├── docs/                    # Static website hosted on GitHub Pages (convert.yaatv.org)
+├── docs/                    # Engineering documentation and assets
 ├── scripts/                 # Contributor and CI automation scripts (e.g. check.py)
 ├── .github/
 │   ├── workflows/           # CI matrix, release builds, installer health checks
