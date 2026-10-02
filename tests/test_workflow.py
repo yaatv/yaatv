@@ -785,7 +785,7 @@ def test_run_dry_run_allows_color_only_output(
     background: str,
     normalized_background: str,
 ) -> None:
-    audio_path = tmp_path / "track.flac"
+    audio_path = tmp_path / "track.mp3"
     output_path = tmp_path / "out.mp4"
     audio_path.write_bytes(b"audio")
     stderr = StringIO()
@@ -794,7 +794,7 @@ def test_run_dry_run_allows_color_only_output(
     monkeypatch.setattr(
         "yaatv.cli.read_audio_metadata",
         lambda _path: AudioMetadata(
-            codec="flac",
+            codec="mp3",
             bitrate=192_000,
             sample_rate=44_100,
             artist=None,

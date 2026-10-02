@@ -70,6 +70,19 @@ KNOWN_AUDIO_EXTENSIONS = {
     ".wav",
     ".wma",
 }
+LOSSLESS_AUDIO_CODECS = {
+    "alac",
+    "ape",
+    "applelossless",
+    "flac",
+    "monkeysaudio",
+    "oggflac",
+    "pcm",
+    "tak",
+    "truehd",
+    "wavpack",
+    "wv",
+}
 KNOWN_IMAGE_EXTENSIONS = {
     ".bmp",
     ".jpeg",
@@ -1659,11 +1672,19 @@ def _audio_bitrate(path: Path, info: object) -> int | None:
 
 def _audio_codec(audio: object, path: Path) -> str | None:
     info = getattr(audio, "info", None)
+    audio_format = getattr(info, "audio_format", None)
+    format_pcm = "pcm" if audio_format in (1, 3) else None
+    audio_class = (
+        audio.__class__.__name__
+        if audio is not None and audio.__class__.__name__ != "NoneType"
+        else None
+    )
     candidates = [
         getattr(info, "codec", None),
         getattr(info, "codec_description", None),
         getattr(info, "codec_id", None),
-        audio.__class__.__name__,
+        format_pcm,
+        audio_class,
         path.suffix.lstrip("."),
     ]
     for candidate in candidates:
@@ -1817,13 +1838,27 @@ def is_aac_codec(codec: str | None) -> bool:
     )
 
 
+def is_lossless_codec(codec: str | None) -> bool:
+    if not codec:
+        return False
+    normalized = codec.strip().lower()
+    return (
+        normalized in LOSSLESS_AUDIO_CODECS
+        or normalized.startswith("pcm")
+    )
+
+
 def quality_warnings(
     metadata: AudioMetadata,
     image_size: tuple[int, int] | None,
     target_size: tuple[int, int],
 ) -> list[str]:
     warnings: list[str] = []
-    if metadata.bitrate is not None and metadata.bitrate < LOW_BITRATE_WARNING:
+    if (
+        metadata.bitrate is not None
+        and metadata.bitrate < LOW_BITRATE_WARNING
+        and not is_lossless_codec(metadata.codec)
+    ):
         warnings.append(
             f"source audio bitrate is {metadata.bitrate // 1000}kbps, below the 256kbps warning threshold"
         )

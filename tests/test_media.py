@@ -1,4 +1,5 @@
 import re
+import wave
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,7 @@ from yaatv.cli import (
     extract_embedded_cover,
     input_format_warnings,
     is_high_quality_aac,
+    is_lossless_codec,
     normalize_output_path,
     pad_seconds,
     quality_warnings,
@@ -60,6 +62,262 @@ def test_low_bitrate_warning_is_reported() -> None:
     )
 
     assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
+
+
+@pytest.mark.parametrize(
+    "codec",
+    [
+        "flac",
+        "oggflac",
+        "alac",
+        "applelossless",
+        "ape",
+        "monkeysaudio",
+        "wavpack",
+        "wv",
+        "truehd",
+        "tak",
+        "pcm",
+        "pcm_s16le",
+        "pcm_s24le",
+        "pcm_f32le",
+    ],
+)
+def test_lossless_audio_does_not_warn_on_low_bitrate(codec: str) -> None:
+    warnings = quality_warnings(
+        AudioMetadata(codec=codec, bitrate=128_000, sample_rate=44_100, artist=None, title=None),
+        image_size=(1920, 1080),
+        target_size=(1920, 1080),
+    )
+
+    assert warnings == []
+
+
+@pytest.mark.parametrize(
+    "codec",
+    [
+        "mp3",
+        "aac",
+        "opus",
+        "vorbis",
+        "ogg",
+        "wma",
+        "wav",
+        "wave",
+        "aiff",
+        "aif",
+        "adpcm_ms",
+        None,
+        "unknown",
+    ],
+)
+def test_lossy_and_unknown_audio_warns_on_low_bitrate(codec: str | None) -> None:
+    warnings = quality_warnings(
+        AudioMetadata(codec=codec, bitrate=192_000, sample_rate=44_100, artist=None, title=None),
+        image_size=(1920, 1080),
+        target_size=(1920, 1080),
+    )
+
+    assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
+
+
+def test_is_lossless_codec_recognition() -> None:
+    assert is_lossless_codec("flac") is True
+    assert is_lossless_codec("oggflac") is True
+    assert is_lossless_codec("alac") is True
+    assert is_lossless_codec("ALAC") is True
+    assert is_lossless_codec("applelossless") is True
+    assert is_lossless_codec("AppleLossless") is True
+    assert is_lossless_codec("ape") is True
+    assert is_lossless_codec("monkeysaudio") is True
+    assert is_lossless_codec("MonkeysAudio") is True
+    assert is_lossless_codec("wavpack") is True
+    assert is_lossless_codec("WavPack") is True
+    assert is_lossless_codec("wv") is True
+    assert is_lossless_codec("truehd") is True
+    assert is_lossless_codec("tak") is True
+    assert is_lossless_codec("pcm") is True
+    assert is_lossless_codec("PCM") is True
+    assert is_lossless_codec("pcm_s16le") is True
+    assert is_lossless_codec("pcm_s24le") is True
+    assert is_lossless_codec("pcm_f32le") is True
+
+    # Containers and lossy formats must not be recognized as lossless codecs
+    assert is_lossless_codec("wav") is False
+    assert is_lossless_codec("wave") is False
+    assert is_lossless_codec("aiff") is False
+    assert is_lossless_codec("AIFF") is False
+    assert is_lossless_codec("aif") is False
+    assert is_lossless_codec("mp3") is False
+    assert is_lossless_codec("aac") is False
+    assert is_lossless_codec("opus") is False
+    assert is_lossless_codec("adpcm_ms") is False
+    assert is_lossless_codec("not-lossless") is False
+    assert is_lossless_codec("") is False
+    assert is_lossless_codec(None) is False
+
+
+def test_read_audio_metadata_confirmed_pcm_wav_suppresses_low_bitrate_warning(
+    tmp_path: Path,
+) -> None:
+    wav_path = tmp_path / "track.wav"
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(1)
+        wf.setframerate(8000)
+        wf.writeframes(b"\x80" * 8000)
+
+    metadata = read_audio_metadata(wav_path)
+    assert metadata.codec == "pcm"
+    assert metadata.bitrate is not None and metadata.bitrate < 256_000
+    warnings = quality_warnings(metadata, image_size=None, target_size=(1920, 1080))
+    assert warnings == []
+
+
+def test_read_audio_metadata_wav_fallback_without_pcm_warns_on_low_bitrate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class WAVE:
+        info = type("FakeInfo", (), {"audio_format": 2, "bitrate": 64_000, "sample_rate": 8000, "length": 1.0})()
+        tags = None
+
+    audio_path = tmp_path / "track.wav"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: WAVE())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == "wave"
+    warnings = quality_warnings(metadata, image_size=None, target_size=(1920, 1080))
+    assert warnings == ["source audio bitrate is 64kbps, below the 256kbps warning threshold"]
+
+
+def test_read_audio_metadata_flac_suppresses_low_bitrate_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FLAC:
+        info = type("FakeInfo", (), {"bitrate": 128_000, "sample_rate": 44_100, "length": 10.0})()
+        tags = None
+
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FLAC())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == "flac"
+    assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == []
+
+
+def test_read_audio_metadata_alac_suppresses_low_bitrate_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class MP4:
+        info = type("FakeInfo", (), {"codec": "alac", "bitrate": 128_000, "sample_rate": 44_100, "length": 10.0})()
+        tags = None
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: MP4())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == "alac"
+    assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == []
+
+
+@pytest.mark.parametrize(
+    ("class_name", "suffix", "expected_codec"),
+    [
+        ("OggFLAC", ".oga", "oggflac"),
+        ("MonkeysAudio", ".ape", "monkeysaudio"),
+        ("WavPack", ".wv", "wavpack"),
+    ],
+)
+def test_read_audio_metadata_class_fallbacks_suppress_low_bitrate_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    class_name: str,
+    suffix: str,
+    expected_codec: str,
+) -> None:
+    fake_class = type(
+        class_name,
+        (),
+        {
+            "info": type("FakeInfo", (), {"bitrate": 128_000, "sample_rate": 44_100, "length": 10.0})(),
+            "tags": None,
+        },
+    )
+    audio_path = tmp_path / f"track{suffix}"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: fake_class())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == expected_codec
+    assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == []
+
+
+def test_read_audio_metadata_mp3_preserves_low_bitrate_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class MP3:
+        info = type("FakeInfo", (), {"bitrate": 192_000, "sample_rate": 44_100, "length": 10.0})()
+        tags = None
+
+    audio_path = tmp_path / "track.mp3"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: MP3())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == "mp3"
+    assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == [
+        "source audio bitrate is 192kbps, below the 256kbps warning threshold"
+    ]
+
+
+def test_read_audio_metadata_aac_preserves_low_bitrate_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class MP4:
+        info = type(
+            "FakeInfo",
+            (),
+            {"codec": "mp4a.40.2", "bitrate": 192_000, "sample_rate": 44_100, "length": 10.0},
+        )()
+        tags = None
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: MP4())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == "mp4a.40.2"
+    assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == [
+        "source audio bitrate is 192kbps, below the 256kbps warning threshold"
+    ]
+
+
+def test_read_audio_metadata_unknown_codec_preserves_low_bitrate_warning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class UnknownAudio:
+        info = type("FakeInfo", (), {"bitrate": 192_000, "sample_rate": 44_100, "length": 10.0})()
+        tags = None
+
+    audio_path = tmp_path / "track.xyz"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: UnknownAudio())
+
+    metadata = read_audio_metadata(audio_path)
+    assert metadata.codec == "unknownaudio"
+    assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == [
+        "source audio bitrate is 192kbps, below the 256kbps warning threshold"
+    ]
+
 
 
 
