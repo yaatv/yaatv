@@ -17,10 +17,12 @@ from yaatv.cli import (
     FFMPEG_ERROR_TAIL_LINES,
     OUTPUT_PROFILES,
     OUTPUT_SIZES,
+    YAATV_PROVENANCE,
     AudioMetadata,
     OutputStats,
     YaatvError,
     build_ffmpeg_command,
+    build_output_metadata_args,
     choose_audio_plan,
     format_duration,
     format_file_details,
@@ -952,4 +954,180 @@ def test_format_file_size_uses_gb_at_exactly_one_gigabyte() -> None:
 
 def test_format_file_size_uses_gb_above_one_gigabyte() -> None:
     assert format_file_size(6 * 1024 * 1024 * 1024) == "6.0 GB"
+
+
+def test_build_output_metadata_args_with_none_or_empty_metadata() -> None:
+    args_none = build_output_metadata_args(None)
+    assert args_none == ("-metadata", f"comment={YAATV_PROVENANCE}")
+
+    empty_meta = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
+    args_empty = build_output_metadata_args(empty_meta)
+    assert args_empty == ("-metadata", f"comment={YAATV_PROVENANCE}")
+
+
+def test_build_output_metadata_args_with_full_metadata() -> None:
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=44_100,
+        title="Track Title",
+        artist="Artist Name",
+        album="Album Title",
+        album_artist="Album Artist",
+        genre="Electronic",
+        date="2024",
+        track="3/10",
+        disc="1/2",
+    )
+    args = build_output_metadata_args(metadata)
+    assert args == (
+        "-metadata",
+        "title=Track Title",
+        "-metadata",
+        "artist=Artist Name",
+        "-metadata",
+        "album=Album Title",
+        "-metadata",
+        "album_artist=Album Artist",
+        "-metadata",
+        "genre=Electronic",
+        "-metadata",
+        "date=2024",
+        "-metadata",
+        "track=3/10",
+        "-metadata",
+        "disc=1/2",
+        "-metadata",
+        f"comment={YAATV_PROVENANCE}",
+    )
+
+
+def test_build_output_metadata_args_omits_missing_and_blank_fields() -> None:
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=44_100,
+        title="Track Title",
+        artist="   ",
+        album=None,
+        album_artist="",
+        genre="Ambient",
+        date=None,
+        track=" ",
+        disc=None,
+    )
+    args = build_output_metadata_args(metadata)
+    assert args == (
+        "-metadata",
+        "title=Track Title",
+        "-metadata",
+        "genre=Ambient",
+        "-metadata",
+        f"comment={YAATV_PROVENANCE}",
+    )
+
+
+def test_build_output_metadata_args_never_includes_private_or_ownership_tags() -> None:
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=44_100,
+        title="Title",
+        artist="Artist",
+    )
+    args = build_output_metadata_args(metadata)
+    joined = " ".join(args).lower()
+    forbidden = ["copyright", "publisher", "owner", "path", "home", "users", "hostname"]
+    for word in forbidden:
+        assert f"{word}=" not in joined
+
+
+def test_build_ffmpeg_command_includes_metadata_in_all_modes() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+    )
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=44_100,
+        title="Song Title",
+        artist="Song Artist",
+        album="Song Album",
+    )
+
+    cmd_standard = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        metadata=metadata,
+    )
+    assert "-metadata" in cmd_standard
+    assert "title=Song Title" in cmd_standard
+    assert "artist=Song Artist" in cmd_standard
+    assert "album=Song Album" in cmd_standard
+    assert f"comment={YAATV_PROVENANCE}" in cmd_standard
+    assert cmd_standard[-1] == "out.mp4"
+    assert cmd_standard.index("-metadata") < cmd_standard.index("out.mp4")
+
+    cmd_color = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=None,
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        metadata=metadata,
+    )
+    assert "title=Song Title" in cmd_color
+    assert f"comment={YAATV_PROVENANCE}" in cmd_color
+
+    cmd_bg = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        bg_image_path=Path("bg.jpg"),
+        metadata=metadata,
+    )
+    assert "title=Song Title" in cmd_bg
+    assert f"comment={YAATV_PROVENANCE}" in cmd_bg
+
+    cmd_blur = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        bg_blur=True,
+        metadata=metadata,
+    )
+    assert "title=Song Title" in cmd_blur
+    assert f"comment={YAATV_PROVENANCE}" in cmd_blur
+
+    cmd_prores = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mov"),
+        target_size=(1920, 1080),
+        audio_plan=plan,
+        overwrite=False,
+        is_prores=True,
+        metadata=metadata,
+    )
+    assert "title=Song Title" in cmd_prores
+    assert f"comment={YAATV_PROVENANCE}" in cmd_prores
+    assert cmd_prores[-1] == "out.mov"
+
 

@@ -58,6 +58,7 @@ LOW_BITRATE_WARNING = 256_000
 TRANSCODE_AUDIO_BITRATE = "384k"
 TRANSCODE_AUDIO_SAMPLE_RATE = "48000"
 DEFAULT_BACKGROUND_COLOR = "black"
+YAATV_PROVENANCE = "Created with yaatv.org"
 KNOWN_AUDIO_EXTENSIONS = {
     ".aac",
     ".aiff",
@@ -209,6 +210,12 @@ class AudioMetadata:
     artist: str | None
     title: str | None
     duration: float | None = None
+    album: str | None = None
+    album_artist: str | None = None
+    genre: str | None = None
+    date: str | None = None
+    track: str | None = None
+    disc: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1536,16 +1543,27 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
     sample_rate = _int_or_none(getattr(info, "sample_rate", None))
     codec = _audio_codec(audio, path)
 
+    tags = getattr(audio, "tags", None)
+
     return AudioMetadata(
         codec=codec,
         bitrate=bitrate,
         sample_rate=sample_rate,
         artist=_tag_value(
-            getattr(audio, "tags", None),
+            tags,
             ("artist", "albumartist", "TPE1", "\xa9ART", "aART", "Author"),
         ),
-        title=_tag_value(getattr(audio, "tags", None), ("title", "TIT2", "\xa9nam")),
+        title=_tag_value(tags, ("title", "TIT2", "\xa9nam", "Title", "WM/Title")),
         duration=_float_or_none(getattr(info, "length", None)),
+        album=_tag_value(tags, ("album", "TALB", "\xa9alb", "WM/AlbumTitle", "Album")),
+        album_artist=_tag_value(
+            tags,
+            ("albumartist", "album_artist", "aART", "TPE2", "WM/AlbumArtist"),
+        ),
+        genre=_tag_value(tags, ("genre", "TCON", "\xa9gen", "gnre", "WM/Genre")),
+        date=_tag_value(tags, ("date", "TDRC", "\xa9day", "TYER", "year", "WM/Year")),
+        track=_tag_value(tags, ("tracknumber", "TRCK", "trkn", "track", "WM/TrackNumber")),
+        disc=_tag_value(tags, ("discnumber", "TPOS", "disk", "disc", "WM/PartOfSet")),
     )
 
 
@@ -1731,12 +1749,12 @@ def _get_tag(tags: object, key: str | None) -> object | None:
     if key is None:
         return None
     try:
-        return tags.get(key)  # type: ignore[attr-defined]
-    except AttributeError:
-        try:
-            return tags[key]  # type: ignore[index]
-        except (KeyError, TypeError):
-            return None
+        getter = getattr(tags, "get", None)
+        if callable(getter):
+            return getter(key)
+        return tags[key]  # type: ignore[index]
+    except (KeyError, TypeError, ValueError, IndexError):
+        return None
 
 
 def _normalize_tag(value: object) -> str | None:
@@ -1748,6 +1766,23 @@ def _normalize_tag(value: object) -> str | None:
         value = text
 
     if isinstance(value, list | tuple):
+        # Handle MP4 trkn/disk format: [(track, total)]
+        if value and isinstance(value[0], tuple | list) and len(value[0]) == 2:
+            num, total = value[0]
+            if isinstance(num, int) and isinstance(total, int):
+                if total > 0:
+                    return f"{num}/{total}"
+                elif num > 0:
+                    return str(num)
+                return None
+        # Handle direct (track, total) tuple
+        if len(value) == 2 and isinstance(value[0], int) and isinstance(value[1], int):
+            num, total = value
+            if total > 0:
+                return f"{num}/{total}"
+            elif num > 0:
+                return str(num)
+            return None
         value = value[0] if value else None
 
     if isinstance(value, bytes):
@@ -1992,18 +2027,40 @@ def _encode_args(audio_plan: AudioPlan, output_profile: OutputProfile) -> tuple[
     )
 
 
+def build_output_metadata_args(metadata: AudioMetadata | None = None) -> tuple[str, ...]:
+    args: list[str] = []
+    if metadata is not None:
+        fields: list[tuple[str, str | None]] = [
+            ("title", metadata.title),
+            ("artist", metadata.artist),
+            ("album", metadata.album),
+            ("album_artist", metadata.album_artist),
+            ("genre", metadata.genre),
+            ("date", metadata.date),
+            ("track", metadata.track),
+            ("disc", metadata.disc),
+        ]
+        for key, val in fields:
+            if val and val.strip():
+                args.extend(("-metadata", f"{key}={val.strip()}"))
+    args.extend(("-metadata", f"comment={YAATV_PROVENANCE}"))
+    return tuple(args)
+
+
 def _finish_output_args(
     output_duration: float | None,
     output_profile: OutputProfile,
     output_path: Path,
     *,
     include_shortest: bool,
+    metadata_args: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     return (
         *(("-shortest",) if include_shortest else ()),
         *output_profile.faststart_args,
         *_duration_args(output_duration),
         *output_profile.output_format_args,
+        *metadata_args,
         str(output_path),
     )
 
@@ -2015,6 +2072,7 @@ def _filter_output_args(
     output_path: Path,
     *,
     include_shortest: bool,
+    metadata_args: tuple[str, ...] = (),
 ) -> tuple[str, ...]:
     return (
         *(("-shortest",) if include_shortest else ()),
@@ -2023,6 +2081,7 @@ def _filter_output_args(
         video_filter,
         *_duration_args(output_duration),
         *output_profile.output_format_args,
+        *metadata_args,
         str(output_path),
     )
 
@@ -2040,10 +2099,12 @@ def build_ffmpeg_command(
     bg_image_path: Path | None = None,
     bg_color: str = DEFAULT_BACKGROUND_COLOR,
     bg_blur: bool = False,
+    metadata: AudioMetadata | None = None,
 ) -> list[str]:
     width, height = target_size
     output_profile = _output_profile(is_prores)
     video_tail = _video_tail(output_profile)
+    metadata_args = build_output_metadata_args(metadata)
 
     if image_path is None:
         color_source = f"color=c={bg_color}:s={width}x{height}"
@@ -2069,6 +2130,7 @@ def build_ffmpeg_command(
                 output_profile,
                 output_path,
                 include_shortest=output_duration is None,
+                metadata_args=metadata_args,
             ),
         ]
 
@@ -2108,6 +2170,7 @@ def build_ffmpeg_command(
                 output_profile,
                 output_path,
                 include_shortest=output_duration is None,
+                metadata_args=metadata_args,
             ),
         ]
 
@@ -2142,6 +2205,7 @@ def build_ffmpeg_command(
                 output_profile,
                 output_path,
                 include_shortest=output_duration is None,
+                metadata_args=metadata_args,
             ),
         ]
 
@@ -2173,6 +2237,7 @@ def build_ffmpeg_command(
             output_profile,
             output_path,
             include_shortest=True,
+            metadata_args=metadata_args,
         ),
     ]
 
@@ -2713,6 +2778,7 @@ def run(
             bg_image_path=bg_image_path,
             bg_color=args.bg_color,
             bg_blur=args.bg_blur,
+            metadata=metadata,
         )
         if args.dry_run:
             print(quote_command(command), file=stderr)

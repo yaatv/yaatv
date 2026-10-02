@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import shutil
 import struct
@@ -11,7 +12,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from yaatv.cli import probe_output, run
+from yaatv.cli import YAATV_PROVENANCE, probe_output, run
 
 pytestmark = pytest.mark.integration
 
@@ -332,6 +333,140 @@ def test_cli_encodes_with_padding(tmp_path: Path) -> None:
     duration = _output_duration(ffprobe, output_path)
     assert 2 <= duration <= 4
     _assert_valid_output(ffmpeg, ffprobe, output_path, expected_size=(1920, 1080), max_duration=4)
+
+
+def test_cli_preserves_metadata_and_provenance_in_mp4(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "output.mp4"
+
+    subprocess.run(
+        [
+            ffmpeg,
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=f=440:d=1",
+            "-metadata",
+            "title=Integration Song",
+            "-metadata",
+            "artist=Integration Artist",
+            "-metadata",
+            "album=Integration Album",
+            "-y",
+            str(audio_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    Image.new("RGB", (320, 240), (24, 84, 128)).save(image_path, "JPEG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    _assert_valid_output(ffmpeg, ffprobe, output_path, expected_size=(1920, 1080), max_duration=3)
+
+    tags = _probe_format_tags(ffprobe, output_path)
+    assert tags.get("title") == "Integration Song"
+    assert tags.get("artist") == "Integration Artist"
+    assert tags.get("album") == "Integration Album"
+    assert tags.get("comment") == YAATV_PROVENANCE
+    assert "copyright" not in tags
+    assert "owner" not in tags
+    assert "publisher" not in tags
+
+
+def test_cli_preserves_metadata_and_provenance_in_mov(tmp_path: Path) -> None:
+    ffmpeg, ffprobe = _require_ffmpeg_tools()
+
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "output.mov"
+
+    subprocess.run(
+        [
+            ffmpeg,
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=f=440:d=1",
+            "-metadata",
+            "title=ProRes Song",
+            "-metadata",
+            "artist=ProRes Artist",
+            "-metadata",
+            "album=ProRes Album",
+            "-y",
+            str(audio_path),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    Image.new("RGB", (320, 240), (24, 84, 128)).save(image_path, "JPEG")
+
+    stderr = StringIO()
+    exit_code = run(
+        [
+            "--audio",
+            str(audio_path),
+            "--image",
+            str(image_path),
+            "--output",
+            str(output_path),
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    )
+
+    assert exit_code == 0
+    _assert_valid_output(ffmpeg, ffprobe, output_path, expected_size=(1920, 1080), max_duration=3, is_prores=True)
+
+    tags = _probe_format_tags(ffprobe, output_path)
+    assert tags.get("title") == "ProRes Song"
+    assert tags.get("artist") == "ProRes Artist"
+    assert tags.get("album") == "ProRes Album"
+    assert tags.get("comment") == YAATV_PROVENANCE
+    assert "copyright" not in tags
+    assert "owner" not in tags
+    assert "publisher" not in tags
+
+
+def _probe_format_tags(ffprobe: str, output_path: Path) -> dict[str, str]:
+    res = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format_tags",
+            "-of",
+            "json",
+            str(output_path),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    tags: dict[str, str] = json.loads(res.stdout).get("format", {}).get("tags", {})
+    return tags
 
 
 def _require_ffmpeg_tools() -> tuple[str, str]:

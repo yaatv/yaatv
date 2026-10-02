@@ -438,6 +438,193 @@ def test_read_audio_metadata_preserves_artist_alias_precedence(
     assert metadata.artist == "Primary Artist"
 
 
+def test_read_audio_metadata_extracts_all_extended_tags_id3(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 120.0})()
+        tags = {
+            "TIT2": "Song Title",
+            "TPE1": "Song Artist",
+            "TALB": "Album Name",
+            "TPE2": "Album Artist",
+            "TCON": "Rock",
+            "TDRC": "2023",
+            "TRCK": "4/12",
+            "TPOS": "1/2",
+        }
+
+    audio_path = tmp_path / "track.mp3"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.title == "Song Title"
+    assert metadata.artist == "Song Artist"
+    assert metadata.album == "Album Name"
+    assert metadata.album_artist == "Album Artist"
+    assert metadata.genre == "Rock"
+    assert metadata.date == "2023"
+    assert metadata.track == "4/12"
+    assert metadata.disc == "1/2"
+
+
+def test_read_audio_metadata_extracts_all_extended_tags_vorbis(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 48_000, "length": 200.0})()
+        tags = {
+            "title": ["Vorbis Title"],
+            "artist": ["Vorbis Artist"],
+            "album": ["Vorbis Album"],
+            "albumartist": ["Vorbis Album Artist"],
+            "genre": ["Ambient"],
+            "date": ["2021"],
+            "tracknumber": ["7"],
+            "discnumber": ["1"],
+        }
+
+    audio_path = tmp_path / "track.flac"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.title == "Vorbis Title"
+    assert metadata.artist == "Vorbis Artist"
+    assert metadata.album == "Vorbis Album"
+    assert metadata.album_artist == "Vorbis Album Artist"
+    assert metadata.genre == "Ambient"
+    assert metadata.date == "2021"
+    assert metadata.track == "7"
+    assert metadata.disc == "1"
+
+
+def test_read_audio_metadata_extracts_all_extended_tags_mp4(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 180.0})()
+        tags = {
+            "\xa9nam": ["MP4 Title"],
+            "\xa9ART": ["MP4 Artist"],
+            "\xa9alb": ["MP4 Album"],
+            "aART": ["MP4 Album Artist"],
+            "\xa9gen": ["Jazz"],
+            "\xa9day": ["2020"],
+            "trkn": [(3, 10)],
+            "disk": [(1, 2)],
+        }
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.title == "MP4 Title"
+    assert metadata.artist == "MP4 Artist"
+    assert metadata.album == "MP4 Album"
+    assert metadata.album_artist == "MP4 Album Artist"
+    assert metadata.genre == "Jazz"
+    assert metadata.date == "2020"
+    assert metadata.track == "3/10"
+    assert metadata.disc == "1/2"
+
+
+def test_read_audio_metadata_handles_mp4_tuples_without_totals(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 180.0})()
+        tags = {
+            "trkn": [(5, 0)],
+            "disk": (2, 0),
+        }
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.track == "5"
+    assert metadata.disc == "2"
+
+
+def test_read_audio_metadata_handles_asf_wma_tags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 150.0})()
+        tags = {
+            "WM/Title": "WMA Title",
+            "Author": "WMA Artist",
+            "WM/AlbumTitle": "WMA Album",
+            "WM/AlbumArtist": "WMA Album Artist",
+            "WM/Genre": "Classical",
+            "WM/Year": "2019",
+            "WM/TrackNumber": "1",
+            "WM/PartOfSet": "1",
+        }
+
+    audio_path = tmp_path / "track.wma"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.title == "WMA Title"
+    assert metadata.artist == "WMA Artist"
+    assert metadata.album == "WMA Album"
+    assert metadata.album_artist == "WMA Album Artist"
+    assert metadata.genre == "Classical"
+    assert metadata.date == "2019"
+    assert metadata.track == "1"
+    assert metadata.disc == "1"
+
+
+def test_read_audio_metadata_omits_missing_and_empty_tags(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 150.0})()
+        tags = {
+            "title": "   ",
+            "artist": "",
+            "album": None,
+        }
+
+    audio_path = tmp_path / "track.mp3"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.title is None
+    assert metadata.artist is None
+    assert metadata.album is None
+    assert metadata.album_artist is None
+    assert metadata.genre is None
+    assert metadata.date is None
+    assert metadata.track is None
+    assert metadata.disc is None
+
+
 def test_output_dir_places_default_name_in_existing_directory(tmp_path: Path) -> None:
     output_dir = tmp_path / "uploads"
     output_dir.mkdir()

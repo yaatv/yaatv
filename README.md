@@ -13,7 +13,7 @@ yaatv audio.flac cover.jpg
 
 Give it audio. Give it artwork. Get a video you can upload.
 
-Website and docs: <https://convert.yaatv.org>
+Browser converter: <https://convert.yaatv.org>
 
 ## Download
 
@@ -143,6 +143,7 @@ yaatv -a track.flac -i cover.jpg --pad 2
 - WAV, FLAC, and high-bitrate AAC are good source choices.
 - JPG, PNG, and static WebP are good cover choices.
 - Animated images are rejected.
+- Common source audio metadata (such as title, artist, album, and date) is preserved into video outputs where supported.
 - The planned output file appears before encoding starts.
 - yaatv shows simple progress while encoding and verifying.
 - Existing output files require confirmation before replacement.
@@ -278,6 +279,3 @@ and attaches them to a GitHub release alongside `SHA256SUMS`.
 git tag v<version>
 git push origin main --tags
 ```
-
-The website is served from `docs/` with GitHub Pages and uses `docs/CNAME` for
-`convert.yaatv.org`.
