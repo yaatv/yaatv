@@ -1233,6 +1233,64 @@ def test_default_output_falls_back_to_audio_stem() -> None:
 
     assert default_output_path(Path("input.flac"), metadata) == Path("input.mp4")
 
+def test_read_audio_metadata_supports_aART_artist_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 120.0})()
+        tags = {"aART": "Album Artist", "title": "Test Song"}
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.artist == "Album Artist"
+    assert metadata.title == "Test Song"
+
+
+def test_read_audio_metadata_supports_author_artist_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 120.0})()
+        tags = {"Author": "WMA Artist", "title": "Test Song"}
+
+    audio_path = tmp_path / "track.wma"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.artist == "WMA Artist"
+    assert metadata.title == "Test Song"
+
+
+def test_read_audio_metadata_preserves_artist_alias_precedence(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class FakeAudio:
+        info = type("FakeInfo", (), {"sample_rate": 44_100, "length": 120.0})()
+        tags = {
+            "artist": "Primary Artist",
+            "aART": "Album Artist",
+            "Author": "WMA Artist",
+        }
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"audio")
+
+    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.artist == "Primary Artist"
 
 def test_output_dir_places_default_name_in_existing_directory(tmp_path: Path) -> None:
     output_dir = tmp_path / "uploads"

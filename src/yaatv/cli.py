@@ -1527,7 +1527,10 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
         codec=codec,
         bitrate=bitrate,
         sample_rate=sample_rate,
-        artist=_tag_value(getattr(audio, "tags", None), ("artist", "albumartist", "TPE1", "\xa9ART")),
+        artist=_tag_value(
+            getattr(audio, "tags", None),
+            ("artist", "albumartist", "TPE1", "\xa9ART", "aART", "Author"),
+        ),
         title=_tag_value(getattr(audio, "tags", None), ("title", "TIT2", "\xa9nam")),
         duration=_float_or_none(getattr(info, "length", None)),
     )
