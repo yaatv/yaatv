@@ -42,7 +42,7 @@ def test_find_ffmpeg_uses_app_cache_before_path(
     path_tool.write_bytes(b"")
     monkeypatch.setattr("shutil.which", lambda _: str(path_tool))
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.tools.check_tool_health",
         lambda path: ToolHealth(path=path, state="ok"),
     )
 
@@ -63,7 +63,7 @@ def test_find_ffmpeg_skips_unhealthy_app_tool_for_healthy_path(
     path_tool.write_bytes(b"")
     monkeypatch.setattr("shutil.which", lambda _: str(path_tool))
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.tools.check_tool_health",
         lambda path: ToolHealth(path=path, state="blocked" if path == str(cached) else "ok"),
     )
 
@@ -83,7 +83,7 @@ def test_find_ffmpeg_skips_unhealthy_bundled_tool_for_healthy_path(
     path_tool.write_bytes(b"")
     monkeypatch.setattr("shutil.which", lambda _: str(path_tool))
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.tools.check_tool_health",
         lambda path: ToolHealth(path=path, state="failed" if path == str(bundled) else "ok"),
     )
 
@@ -104,7 +104,7 @@ def test_find_ffmpeg_reports_when_every_candidate_is_unhealthy(
     path_tool.write_bytes(b"")
     monkeypatch.setattr("shutil.which", lambda _: str(path_tool))
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.tools.check_tool_health",
         lambda path: ToolHealth(path=path, state="failed"),
     )
 
@@ -351,7 +351,7 @@ def test_resolve_ffmpeg_tools_interactive_installs_when_confirmed(
 
     monkeypatch.setattr("shutil.which", lambda _: None)
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.tools.check_tool_health",
         lambda path: ToolHealth(path=path, state="ok"),
     )
 
@@ -378,7 +378,7 @@ def test_find_ffprobe_uses_adjacent_bin_for_frozen_onedir(
     monkeypatch.setattr(sys, "executable", str(tmp_path / _executable_name("yaatv")))
     monkeypatch.setattr("shutil.which", lambda _: None)
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.tools.check_tool_health",
         lambda path: ToolHealth(path=path, state="ok"),
     )
 
@@ -421,13 +421,13 @@ def test_get_platform_info_detection() -> None:
 
 def test_supports_app_managed_ffmpeg_install_delegates(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.tools._get_platform_info",
         lambda: PlatformInfo(os_family="windows", arch="x64", label="Windows x64", is_supported=True),
     )
     assert supports_app_managed_ffmpeg_install() is True
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.tools._get_platform_info",
         lambda: PlatformInfo(os_family="linux", arch="arm64", label="Linux arm64", is_supported=False),
     )
     assert supports_app_managed_ffmpeg_install() is False
@@ -436,21 +436,21 @@ def test_supports_app_managed_ffmpeg_install_delegates(monkeypatch: pytest.Monke
 
 def test_app_managed_ffmpeg_bin_dir_platform_error_messages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.tools._get_platform_info",
         lambda: PlatformInfo(os_family="windows", arch="arm64", label="Windows arm64", is_supported=False),
     )
     with pytest.raises(YaatvError, match=r"^yaatv --install-ffmpeg is only supported on Windows x64\.$"):
         app_managed_ffmpeg_bin_dir()
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.tools._get_platform_info",
         lambda: PlatformInfo(os_family="linux", arch="arm64", label="Linux arm64", is_supported=False),
     )
     with pytest.raises(YaatvError, match=r"^yaatv --install-ffmpeg is only supported on Linux x64\.$"):
         app_managed_ffmpeg_bin_dir()
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.tools._get_platform_info",
         lambda: PlatformInfo(os_family="macos", arch="other", label="macOS other", is_supported=False),
     )
     with pytest.raises(
@@ -459,7 +459,7 @@ def test_app_managed_ffmpeg_bin_dir_platform_error_messages(monkeypatch: pytest.
         app_managed_ffmpeg_bin_dir()
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.tools._get_platform_info",
         lambda: PlatformInfo(os_family="other", arch="x64", label="freebsd x64", is_supported=False),
     )
     with pytest.raises(YaatvError, match=r"^yaatv --install-ffmpeg is not supported on this system\.$"):
