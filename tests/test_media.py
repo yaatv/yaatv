@@ -184,7 +184,7 @@ def test_read_audio_metadata_wav_fallback_without_pcm_warns_on_low_bitrate(
 
     audio_path = tmp_path / "track.wav"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: WAVE())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: WAVE())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "wave"
@@ -202,7 +202,7 @@ def test_read_audio_metadata_flac_suppresses_low_bitrate_warning(
 
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FLAC())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FLAC())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "flac"
@@ -219,7 +219,7 @@ def test_read_audio_metadata_alac_suppresses_low_bitrate_warning(
 
     audio_path = tmp_path / "track.m4a"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: MP4())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: MP4())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "alac"
@@ -251,7 +251,7 @@ def test_read_audio_metadata_class_fallbacks_suppress_low_bitrate_warning(
     )
     audio_path = tmp_path / f"track{suffix}"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: fake_class())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: fake_class())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == expected_codec
@@ -268,7 +268,7 @@ def test_read_audio_metadata_mp3_preserves_low_bitrate_warning(
 
     audio_path = tmp_path / "track.mp3"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: MP3())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: MP3())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "mp3"
@@ -291,7 +291,7 @@ def test_read_audio_metadata_aac_preserves_low_bitrate_warning(
 
     audio_path = tmp_path / "track.m4a"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: MP4())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: MP4())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "mp4a.40.2"
@@ -310,7 +310,7 @@ def test_read_audio_metadata_unknown_codec_preserves_low_bitrate_warning(
 
     audio_path = tmp_path / "track.xyz"
     audio_path.write_bytes(b"dummy")
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: UnknownAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: UnknownAudio())
 
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "unknownaudio"
@@ -389,7 +389,7 @@ def test_read_audio_metadata_supports_aART_artist_alias(
     audio_path = tmp_path / "track.m4a"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -408,7 +408,7 @@ def test_read_audio_metadata_supports_author_artist_alias(
     audio_path = tmp_path / "track.wma"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -431,7 +431,7 @@ def test_read_audio_metadata_preserves_artist_alias_precedence(
     audio_path = tmp_path / "track.m4a"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -458,7 +458,7 @@ def test_read_audio_metadata_extracts_all_extended_tags_id3(
     audio_path = tmp_path / "track.mp3"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -492,7 +492,7 @@ def test_read_audio_metadata_extracts_all_extended_tags_vorbis(
     audio_path = tmp_path / "track.flac"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -526,7 +526,7 @@ def test_read_audio_metadata_extracts_all_extended_tags_mp4(
     audio_path = tmp_path / "track.m4a"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -554,7 +554,7 @@ def test_read_audio_metadata_handles_mp4_tuples_without_totals(
     audio_path = tmp_path / "track.m4a"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -582,7 +582,7 @@ def test_read_audio_metadata_handles_asf_wma_tags(
     audio_path = tmp_path / "track.wma"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -611,7 +611,7 @@ def test_read_audio_metadata_omits_missing_and_empty_tags(
     audio_path = tmp_path / "track.mp3"
     audio_path.write_bytes(b"audio")
 
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     metadata = read_audio_metadata(audio_path)
 
@@ -774,7 +774,7 @@ def test_extract_embedded_cover_uses_apic_tag(
     audio_path.write_bytes(b"audio")
     output_dir = tmp_path / "covers"
     output_dir.mkdir()
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: FakeAudio())
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: FakeAudio())
 
     cover_path = extract_embedded_cover(audio_path, output_dir)
 
@@ -794,7 +794,7 @@ def test_extract_embedded_cover_skips_invalid_candidate(
     audio_path = tmp_path / "track.flac"
     output_dir = tmp_path / "covers"
     output_dir.mkdir()
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: audio)
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
 
     cover_path = extract_embedded_cover(audio_path, output_dir)
 
@@ -822,7 +822,7 @@ def test_extract_embedded_cover_prefers_front_cover_candidate(
     audio_path = tmp_path / "track.flac"
     output_dir = tmp_path / "covers"
     output_dir.mkdir()
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: audio)
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
 
     cover_path = extract_embedded_cover(audio_path, output_dir)
 
@@ -850,7 +850,7 @@ def test_extract_embedded_cover_prefers_front_cover_by_string_type(
     audio_path = tmp_path / "track.flac"
     output_dir = tmp_path / "covers"
     output_dir.mkdir()
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: audio)
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
 
     cover_path = extract_embedded_cover(audio_path, output_dir)
 
@@ -869,7 +869,7 @@ def test_extract_embedded_cover_rejects_all_invalid_candidates(
     audio_path = tmp_path / "track.flac"
     output_dir = tmp_path / "covers"
     output_dir.mkdir()
-    monkeypatch.setattr("yaatv.cli.MutagenFile", lambda _path: audio)
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
 
     with pytest.raises(YaatvError, match=f"Could not read embedded cover art: {re.escape(str(audio_path))}"):
         extract_embedded_cover(audio_path, output_dir)
