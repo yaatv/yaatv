@@ -64,7 +64,7 @@ def main() -> int:
             ("Smoke test CLI", [py, "-m", "yaatv", "--version"]),
             ("Ruff linter", [py, "-m", "ruff", "check", "."]),
             ("Mypy type checker", [py, "-m", "mypy"]),
-            ("Bandit security scan", [py, "-m", "bandit", "-c", "pyproject.toml", "-r", "src"]),
+            ("Bandit security scan", [py, "-m", "bandit", "-c", "pyproject.toml", "-r", "yaatv"]),
             (
                 "Dependency licenses",
                 [py, "-m", "piplicenses", "--packages", "mutagen", "pillow", "--with-urls"],
@@ -80,7 +80,7 @@ def main() -> int:
         ])
 
         if not args.fast:
-            steps.append(("Bandit security scan", [py, "-m", "bandit", "-c", "pyproject.toml", "-r", "src"]))
+            steps.append(("Bandit security scan", [py, "-m", "bandit", "-c", "pyproject.toml", "-r", "yaatv"]))
             steps.append((
                 "Dependency licenses",
                 [py, "-m", "piplicenses", "--packages", "mutagen", "pillow", "--with-urls"],
