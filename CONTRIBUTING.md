@@ -161,7 +161,13 @@ After stable 1.0:
 
 ### Keeping versions in sync
 
-Keep the version in `pyproject.toml`, `src/yaatv/__init__.py`, and the README publishing example in sync. The release workflow refuses tag builds when `vX.Y.Z` does not match `pyproject.toml`.
+Set the package version in `yaatv/__init__.py` (`__version__`), the single source of truth.
+`pyproject.toml` reads `yaatv.__version__` dynamically through setuptools; it does not
+store a second version. The README publishing example uses the placeholder
+`v<version>` rather than a separately maintained version number.
+
+The release workflow imports `yaatv.__version__` and refuses a tag build when the
+tag's version does not match it.
 
 ### Windows Defender and SmartScreen false positives
 
@@ -174,7 +180,9 @@ If a new Windows release triggers false positives, submit `yaatv.exe` for analys
 
 ### Tags
 
-Every version change in `pyproject.toml` should correspond to a git tag. If the code says `0.5.1`, tag that commit as `v0.5.1`. This keeps the release history clean and the CI build trigger working.
+For a release, tag the commit as `v<__version__>`, using the value in
+`yaatv/__init__.py`. If `__version__` is `0.5.1`, tag that commit as `v0.5.1`.
+This keeps the release history clean and the CI build trigger working.
 
 ## Coding style
 
