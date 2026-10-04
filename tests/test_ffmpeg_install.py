@@ -504,6 +504,96 @@ def test_install_macos_ffmpeg_uses_arm64_downloads(
     assert (install_dir / "ffmpeg").read_bytes() == b"arm64 ffmpeg"
     assert (install_dir / "ffprobe").read_bytes() == b"arm64 ffprobe"
 
+@pytest.mark.parametrize("failure_phase", ["download_local", "install", "health"])
+def test_local_install_failure_does_not_try_another_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, failure_phase: str,
+) -> None:
+    archive_bytes = _ffmpeg_zip_bytes()
+    digest = hashlib.sha256(archive_bytes).hexdigest()
+    sources = tuple(
+        WindowsFFmpegSource(name=name, archive_url=f"https://example.invalid/{name}.zip", expected_sha256=digest)
+        for name in ("primary", "fallback")
+    )
+    downloads: list[str] = []
+    error = (
+        PermissionError(13, "local disk denied")
+        if failure_phase == "download_local"
+        else YaatvError("local failure")
+    )
+
+    def download(url: str, destination: Path) -> None:
+        downloads.append(url)
+        if failure_phase == "download_local":
+            raise error
+        destination.write_bytes(archive_bytes)
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise error
+
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+    if failure_phase == "install":
+        monkeypatch.setattr("yaatv.ffmpeg.install._install_staged_tools", fail)
+    elif failure_phase == "health":
+        monkeypatch.setattr("yaatv.ffmpeg.install._verify_installed_tools", fail)
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="local") as exc_info:
+        install_windows_ffmpeg(install_dir=tmp_path / "bin", sources=sources, stderr=stderr)
+
+    assert len(downloads) == 1
+    assert "Trying fallback" not in stderr.getvalue()
+    if failure_phase != "download_local":
+        assert exc_info.value is error
+
+@pytest.mark.parametrize("archive_bytes", [b"not a ZIP", _single_tool_zip_bytes("unrelated", b"tool")])
+def test_invalid_source_archive_uses_fallback(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, archive_bytes: bytes,
+) -> None:
+    good = _ffmpeg_zip_bytes()
+    sources = (
+        WindowsFFmpegSource("bad", "https://example.invalid/bad.zip", hashlib.sha256(archive_bytes).hexdigest()),
+        WindowsFFmpegSource("good", "https://example.invalid/good.zip", hashlib.sha256(good).hexdigest()),
+    )
+    downloads: list[str] = []
+
+    def download(url: str, destination: Path) -> None:
+        downloads.append(url)
+        destination.write_bytes(archive_bytes if url.endswith("/bad.zip") else good)
+
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
+    _mark_installed_tools_healthy(monkeypatch)
+    stderr = StringIO()
+
+    assert install_windows_ffmpeg(install_dir=tmp_path / "bin", sources=sources, stderr=stderr) == tmp_path / "bin"
+    assert len(downloads) == 2
+    assert "Trying fallback" in stderr.getvalue()
+
+def test_download_local_filesystem_failure_is_not_retried(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    requests: list[object] = []
+
+    def urlopen(request: object, **_kwargs: object) -> BytesIO:
+        requests.append(request)
+        return BytesIO(b"archive")
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    destination = tmp_path / "archive.zip"
+    real_open = Path.open
+
+    def denied_open(path: Path, *args: object, **kwargs: object) -> object:
+        if path == destination:
+            raise PermissionError(13, "local disk denied")
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", denied_open)
+
+    with pytest.raises(PermissionError):
+        _download_url("https://example.invalid/archive.zip", destination)
+
+    assert len(requests) == 1
+
 def test_windows_ffmpeg_fallback_on_download_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
