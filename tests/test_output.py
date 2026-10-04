@@ -1,7 +1,10 @@
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+from yaatv import output
 from yaatv.models import AudioMetadata, YaatvError
 from yaatv.output import (
     MAX_FILENAME_LENGTH,
@@ -13,6 +16,78 @@ from yaatv.output import (
     resolve_output_path,
     sanitize_filename,
 )
+
+
+@pytest.mark.parametrize(
+    ("os_name", "platform", "opener"),
+    [("nt", "win32", None), ("posix", "darwin", "/tools/open"), ("posix", "linux", "/tools/xdg-open")],
+)
+def test_open_output_folder_selects_platform_opener(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    os_name: str,
+    platform: str,
+    opener: str | None,
+) -> None:
+    started: list[str] = []
+    commands: list[list[str]] = []
+    monkeypatch.setattr(output, "os", SimpleNamespace(name=os_name, startfile=started.append))
+    monkeypatch.setattr(output, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(output.shutil, "which", lambda _name: opener)
+    monkeypatch.setattr(output.subprocess, "Popen", commands.append)
+    stderr = StringIO()
+
+    output.open_output_folder(tmp_path / "video.mp4", stderr)
+
+    if os_name == "nt":
+        assert started == [str(tmp_path)]
+        assert commands == []
+    else:
+        assert started == []
+        assert commands == [[opener, str(tmp_path)]]
+    assert stderr.getvalue() == ""
+
+def test_open_output_folder_uses_macos_default_when_open_not_on_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+    monkeypatch.setattr(output, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(output, "sys", SimpleNamespace(platform="darwin"))
+    monkeypatch.setattr(output.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(output.subprocess, "Popen", commands.append)
+
+    output.open_output_folder(Path("video.mp4"), StringIO())
+
+    assert commands == [["/usr/bin/open", "."]]
+
+def test_open_output_folder_warns_when_linux_opener_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(output, "os", SimpleNamespace(name="posix"))
+    monkeypatch.setattr(output, "sys", SimpleNamespace(platform="linux"))
+    monkeypatch.setattr(output.shutil, "which", lambda _name: None)
+    stderr = StringIO()
+
+    output.open_output_folder(Path("video.mp4"), stderr)
+
+    assert "warning: could not open output folder: xdg-open was not found" in stderr.getvalue()
+
+@pytest.mark.parametrize(("os_name", "platform"), [("nt", "win32"), ("posix", "darwin"), ("posix", "linux")])
+def test_open_output_folder_warns_instead_of_raising_on_launch_failure(
+    monkeypatch: pytest.MonkeyPatch, os_name: str, platform: str,
+) -> None:
+    def fail(_arg: object) -> None:
+        raise PermissionError("opener blocked")
+
+    monkeypatch.setattr(output, "os", SimpleNamespace(name=os_name, startfile=fail))
+    monkeypatch.setattr(output, "sys", SimpleNamespace(platform=platform))
+    monkeypatch.setattr(output.shutil, "which", lambda _name: "/tools/opener")
+    monkeypatch.setattr(output.subprocess, "Popen", fail)
+    stderr = StringIO()
+
+    output.open_output_folder(Path("video.mp4"), stderr)
+
+    assert "warning: could not open output folder: opener blocked" in stderr.getvalue()
 
 
 def test_default_output_prefers_artist_and_title() -> None:
