@@ -6,16 +6,29 @@ This document provides a technical overview of `yaatv` for contributors.
 
 ```text
 yaatv/
-├── src/
-│   └── yaatv/
-│       ├── __init__.py      # Package metadata and version definition (__version__)
-│       ├── __main__.py      # Module entrypoint (invokes cli.main())
-│       └── cli.py           # Core CLI logic, media processing, FFmpeg filtergraph, and execution
+├── yaatv/
+│   ├── __init__.py          # Package metadata and version definition (__version__)
+│   ├── __main__.py          # Module entrypoint (invokes cli.main())
+│   ├── cli.py               # Process boundary: argv, run(), main(), and Windows pause handling
+│   ├── options.py           # Argument syntax, defaults, and validation; returns Config
+│   ├── models.py            # Shared data models, including the frozen Config dataclass
+│   ├── workflow.py          # Encoding workflow, tool resolution, and dispatch from Config
+│   ├── media.py             # Audio metadata, embedded artwork, and image validation
+│   ├── planning.py          # Audio, canvas, and quality planning
+│   ├── output.py            # Output paths, summaries, and output-file handling
+│   ├── diagnostics.py       # --scry diagnostics and tool reports
+│   └── ffmpeg/
+│       ├── __init__.py      # FFmpeg package
+│       ├── tools.py           # FFmpeg and FFprobe discovery and health checks
+│       ├── install.py         # Managed FFmpeg installation
+│       ├── command.py         # FFmpeg command and filtergraph construction
+│       └── runner.py          # FFmpeg execution, progress, and output probing
 ├── tests/
 │   ├── _support.py          # Shared test helpers and generators
 │   ├── conftest.py          # Pytest configuration
 │   ├── test_project.py      # Packaging, versioning, and repository contracts
-│   ├── test_cli.py          # Public CLI interface, flags, and argument parsing
+│   ├── test_options.py      # Parser syntax, help, color, and pad validation
+│   ├── test_cli.py          # CLI process/argv boundary and Windows pause behavior
 │   ├── test_planning.py     # Audio planning, quality warnings, and output geometry
 │   ├── test_media.py        # Metadata, artwork, input classification, and image validation
 │   ├── test_output.py       # Output naming, path normalization, and file details
@@ -24,8 +37,8 @@ yaatv/
 │   ├── test_ffmpeg_tools.py # Binary discovery, health checks, and platform detection
 │   ├── test_diagnostics.py  # `--scry` diagnostics and tool reports
 │   ├── test_ffmpeg_install.py # Managed FFmpeg installer, downloads, and rollback
-│   ├── test_system.py       # CLI tool resolution and dispatch behavior
-│   ├── test_workflow.py     # End-to-end run orchestration, dry-runs, and overwrite flows
+│   ├── test_system.py       # Tool resolution and --scry dispatch behavior
+│   ├── test_workflow.py     # cli.run argv coverage and direct Config workflow tests
 │   └── test_ffmpeg_integration.py # End-to-end integration tests requiring real FFmpeg/FFprobe
 ├── docs/                    # Engineering documentation and assets
 ├── scripts/                 # Contributor and CI automation scripts (e.g. check.py)
@@ -37,30 +50,35 @@ yaatv/
 
 ## CLI Processing Pipeline
 
-When `yaatv` runs, execution flows through the following sequential stages in `src/yaatv/cli.py`:
+When `yaatv` runs, `yaatv.cli` provides the process boundary. `options.parse_args()` keeps
+argument syntax, defaults, and validation in one place, then creates a frozen `models.Config` dataclass
+from the parsed `argparse.Namespace`. `workflow.run(args: Config)` accepts the parsed configuration and
+handles encoding, tool resolution, and dispatch through the owning modules.
+The main processing stages are:
 
 ```text
-CLI Arguments
+argv
      │
      ▼
-Argument Parsing & Validation
-  (positional arguments, flags, mutual exclusion, default output naming)
+yaatv.options.parse_args()
+  └── argparse.Namespace → yaatv.models.Config
      │
      ▼
-Media Probing
-  ├── Audio stream detection & duration via ffprobe
+yaatv.workflow.run(args: Config)
+  ├── Tool resolution and system dispatch
+  ├── Audio metadata, tags, and duration via mutagen (`media.py`)
   ├── Embedded cover art extraction via mutagen (if no separate -i provided)
-  └── Cover image dimensions & static format validation via Pillow
+  └── Cover image dimensions & static format validation via Pillow (`media.py`)
      │
      ▼
-Canvas Geometry & Timing Calculations
+Canvas Geometry & Timing Calculations (`planning.py`)
   ├── Resolution presets (1080p, 1440p, 4k)
   ├── Aspect ratio presets (16:9, square, 9:16)
   ├── Even-dimension enforcement (divisible by 2 for yuv420p)
   └── Silence pad duration calculation (0–10 seconds)
      │
      ▼
-FFmpeg Command & Filtergraph Construction
+FFmpeg Command & Filtergraph Construction (`ffmpeg/command.py`)
   ├── Image loop input (-loop 1 -i <image>)
   ├── Audio stream input (-i <audio>)
   ├── Video filtergraph (scaling, background color/blur/image, centering)
@@ -68,10 +86,10 @@ FFmpeg Command & Filtergraph Construction
   └── Codec selection (-c:v libx264 or prores_ks, -c:a aac or copy)
      │
      ▼
-Execution & Verification
+Execution & Verification (`workflow.py`, `output.py`, `ffmpeg/runner.py`)
   ├── Overwrite confirmation (if destination exists and not --overwrite)
   ├── Subprocess execution (streaming stderr for progress parsing)
-  └── Post-encode probe (verifying output duration and valid streams)
+  └── Post-encode probing with FFprobe (verifying output duration and valid streams)
 ```
 
 ## Media Tools & Environment (`--install-ffmpeg`, `--scry`)

@@ -11,7 +11,9 @@ from tests._support import (
 )
 from yaatv.cli import run
 from yaatv.models import AudioMetadata, FFmpegResult, OutputStats, YaatvError
+from yaatv.options import parse_args
 from yaatv.output import confirm_overwrite
+from yaatv.workflow import run as workflow_run
 
 
 def test_run_dry_run_prints_command_without_encoding(
@@ -25,9 +27,9 @@ def test_run_dry_run_prints_command_without_encoding(
     image_path.write_bytes(b"image")
     stderr = StringIO()
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -37,12 +39,12 @@ def test_run_dry_run_prints_command_without_encoding(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
 
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     assert run(
         ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
@@ -69,7 +71,7 @@ def test_run_dry_run_does_not_require_overwrite_when_output_exists(
     stderr = StringIO()
 
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -79,7 +81,7 @@ def test_run_dry_run_does_not_require_overwrite_when_output_exists(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
 
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
@@ -87,8 +89,8 @@ def test_run_dry_run_does_not_require_overwrite_when_output_exists(
     def refuse_overwrite(*_args: object, **_kwargs: object) -> bool:
         raise AssertionError("dry run must not confirm overwrite")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
-    monkeypatch.setattr("yaatv.cli.confirm_overwrite", refuse_overwrite)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.confirm_overwrite", refuse_overwrite)
 
     assert run(
         ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
@@ -114,7 +116,7 @@ def test_run_dry_run_existing_output_does_not_prompt_when_interactive(
     stderr = StringIO()
 
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -124,9 +126,9 @@ def test_run_dry_run_existing_output_does_not_prompt_when_interactive(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
     monkeypatch.setattr(
-        "yaatv.cli.run_ffmpeg",
+        "yaatv.workflow.run_ffmpeg",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("dry run must not encode")),
     )
 
@@ -157,10 +159,10 @@ def test_run_dry_run_does_not_require_ffmpeg_discovery(
     def find_tool(**_kwargs: object) -> str:
         raise YaatvError("FFmpeg was not found")
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", resolve_tools)
-    monkeypatch.setattr("yaatv.cli.find_ffmpeg", find_tool)
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", resolve_tools)
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", find_tool)
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -170,7 +172,7 @@ def test_run_dry_run_does_not_require_ffmpeg_discovery(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
 
     assert run(
         ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
@@ -194,9 +196,9 @@ def test_run_quick_mode_dry_run_uses_classified_files(
     image_path.write_bytes(b"image")
     stderr = StringIO()
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -206,12 +208,12 @@ def test_run_quick_mode_dry_run_uses_classified_files(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
 
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     assert run(
         [str(image_path), str(audio_path), "--resolution", "1440p", "--dry-run"],
@@ -237,7 +239,7 @@ def test_run_dry_run_uses_selected_aspect(
     stderr = StringIO()
 
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -247,7 +249,7 @@ def test_run_dry_run_uses_selected_aspect(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
 
     assert run(
         [
@@ -278,7 +280,7 @@ def test_run_dry_run_uses_embedded_cover_when_image_is_omitted(
     stderr = StringIO()
 
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -294,7 +296,7 @@ def test_run_dry_run_uses_embedded_cover_when_image_is_omitted(
         cover_path.write_bytes(_image_bytes())
         return cover_path
 
-    monkeypatch.setattr("yaatv.cli.extract_embedded_cover", extract_cover)
+    monkeypatch.setattr("yaatv.workflow.extract_embedded_cover", extract_cover)
 
     assert run(
         ["--audio", str(audio_path), "-o", str(output_path), "--dry-run"],
@@ -320,9 +322,9 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
     stderr = StringIO()
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -332,9 +334,9 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
     monkeypatch.setattr(
-        "yaatv.cli.probe_output",
+        "yaatv.workflow.probe_output",
         lambda _ffprobe, _output_path: OutputStats(
             width=1920,
             height=1080,
@@ -356,8 +358,8 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
         output_path.write_bytes(b"video")
         return 0
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
-    monkeypatch.setattr("yaatv.cli.open_output_folder", lambda path, _stderr: captured.setdefault("opened", path))
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.open_output_folder", lambda path, _stderr: captured.setdefault("opened", path))
 
     assert run(
         [str(audio_path), str(image_path), "-o", str(output_path), "--open-folder"],
@@ -385,7 +387,7 @@ def test_failed_encode_removes_newly_created_partial_output(
         output_path.write_bytes(b"partial")
         return 1
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     assert run(
         [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
@@ -411,7 +413,7 @@ def test_failed_encode_shows_ffmpeg_error_tail(
         output_path.write_bytes(b"partial")
         return FFmpegResult(1, "Invalid data found when processing input")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     assert run(
         [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
@@ -439,8 +441,8 @@ def test_failed_verification_removes_newly_created_output(
     def probe(_ffprobe: str, _output_path: Path) -> OutputStats:
         raise YaatvError("Could not verify output with FFprobe")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
-    monkeypatch.setattr("yaatv.cli.probe_output", probe)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.probe_output", probe)
 
     with pytest.raises(YaatvError, match="Could not verify output"):
         run(
@@ -465,9 +467,9 @@ def test_failed_output_stats_verification_removes_rejected_output(
         output_path.write_bytes(b"video")
         return 0
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
     monkeypatch.setattr(
-        "yaatv.cli.probe_output",
+        "yaatv.workflow.probe_output",
         lambda _ffprobe, _output_path: OutputStats(
             width=640,
             height=360,
@@ -505,7 +507,7 @@ def test_failed_encode_without_output_creation_removes_nothing(
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         return 1
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     assert run(
         [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
@@ -534,7 +536,7 @@ def test_failed_encode_preserves_existing_output_when_overwrite_was_allowed(
         encoded_path.write_bytes(b"partial")
         return 1
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     assert run(
         [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
@@ -564,9 +566,9 @@ def test_failed_verification_preserves_existing_output(
         encoded_path.write_bytes(b"replacement")
         return 0
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
     monkeypatch.setattr(
-        "yaatv.cli.probe_output",
+        "yaatv.workflow.probe_output",
         lambda _ffprobe, _output_path: (_ for _ in ()).throw(YaatvError("Could not verify output")),
     )
 
@@ -597,9 +599,9 @@ def test_verified_overwrite_atomically_replaces_existing_output(
         encoded_path.write_bytes(b"replacement")
         return 0
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
     monkeypatch.setattr(
-        "yaatv.cli.probe_output",
+        "yaatv.workflow.probe_output",
         lambda _ffprobe, _output_path: OutputStats(
             width=1920,
             height=1080,
@@ -635,7 +637,7 @@ def test_dry_run_with_overwrite_still_reports_final_output_path(
     output_path.write_bytes(b"previous output")
     stderr = StringIO()
 
-    monkeypatch.setattr("yaatv.cli.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
 
     assert run(
         [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite", "--dry-run"],
@@ -659,7 +661,7 @@ def test_failed_encode_never_touches_preexisting_output_without_permission(
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("encoding must not start without overwrite permission")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     with pytest.raises(YaatvError, match="Output already exists"):
         run(
@@ -686,7 +688,7 @@ def test_output_cleanup_failure_warns_without_hiding_original_error(
     def locked_unlink(self: Path, missing_ok: bool = False) -> None:
         raise OSError("file is locked")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
     monkeypatch.setattr("pathlib.Path.unlink", locked_unlink)
 
     assert run(
@@ -717,9 +719,9 @@ def test_run_uses_output_dir_and_overwrite_flag(
     stderr = StringIO()
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -729,16 +731,16 @@ def test_run_uses_output_dir_and_overwrite_flag(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
 
     def encode(command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         captured["command"] = command
         Path(command[-1]).write_bytes(b"replacement")
         return 0
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
     monkeypatch.setattr(
-        "yaatv.cli.probe_output",
+        "yaatv.workflow.probe_output",
         lambda _ffprobe, _output_path: OutputStats(
             width=1920,
             height=1080,
@@ -785,9 +787,9 @@ def test_run_dry_run_allows_color_only_output(
     audio_path.write_bytes(b"audio")
     stderr = StringIO()
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="mp3",
             bitrate=192_000,
@@ -801,7 +803,7 @@ def test_run_dry_run_allows_color_only_output(
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
 
-    monkeypatch.setattr("yaatv.cli.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
 
     args = ["-a", str(audio_path), "--bg-color", background, "-o", str(output_path), "--dry-run"]
     if no_warn:
@@ -840,4 +842,20 @@ def test_existing_output_prompts_when_interactive(tmp_path: Path) -> None:
 
     assert confirm_overwrite(output, stdin=_TtyInput("y\n"), stderr=stderr) is True
     assert f"Output already exists: {output}" in stderr.getvalue()
+
+
+def test_workflow_run_accepts_config_and_dispatches_scry(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = parse_args(["--scry"])
+    stdin = StringIO()
+    stderr = StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_scry(*, stderr: StringIO) -> int:
+        captured["stderr"] = stderr
+        return 3
+
+    monkeypatch.setattr("yaatv.workflow.run_scry", fake_scry)
+
+    assert workflow_run(args, stdin=stdin, stderr=stderr) == 3
+    assert captured["stderr"] is stderr
 

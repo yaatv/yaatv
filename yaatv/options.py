@@ -10,6 +10,7 @@ from pathlib import Path
 from PIL import ImageColor
 
 from . import __version__
+from .models import Config
 from .planning import DEFAULT_ASPECT, DEFAULT_BACKGROUND_COLOR, OUTPUT_SIZES, RESOLUTIONS
 
 # ---------------------------------------------------------------------------
@@ -53,7 +54,7 @@ def background_color(value: str) -> str:
     raise argparse.ArgumentTypeError(f"--bg-color must be a valid #RRGGBB hex color or named CSS color: {value}")
 
 
-def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
+def parse_args(argv: Sequence[str] | None = None) -> Config:
     argv_list = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(
         prog="yaatv",
@@ -194,4 +195,4 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "--bg-color has no effect when used with --bg-image or --bg-blur; "
             "remove --bg-color or choose a different background mode."
         )
-    return args
+    return Config(**vars(args))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -11,6 +12,29 @@ from typing import Any
 
 class YaatvError(Exception):
     """An expected user-facing failure."""
+
+
+@dataclass(frozen=True)
+class Config:
+    files: list[Path]
+    audio: Path | None
+    image: Path | None
+    resolution: str
+    aspect: str
+    bg_color: str
+    bg_blur: bool
+    bg_image: Path | None
+    output: Path | None
+    output_dir: Path | None
+    pad: float
+    dry_run: bool
+    overwrite: bool
+    open_folder: bool
+    no_warn: bool
+    verbose: bool
+    install_ffmpeg: bool
+    scry: bool
+    bg_color_explicit: bool
 
 
 @dataclass(frozen=True)
