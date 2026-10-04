@@ -112,7 +112,7 @@ def _background_blur_filter(width: int, height: int, *, pixel_format: str = "yuv
 
 def _mark_installed_tools_healthy(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.ffmpeg.install.check_tool_health",
         lambda path: ToolHealth(path=path, state="ok", version="test"),
     )
 

@@ -105,7 +105,7 @@ def test_install_ffmpeg_rejects_checksum_failure(
     def download(_url: str, destination: Path) -> None:
         destination.write_bytes(b"not the archive")
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
 
     with pytest.raises(YaatvError, match="checksum mismatch"):
         install_windows_ffmpeg(
@@ -130,7 +130,7 @@ def test_install_windows_ffmpeg_rejects_archive_without_required_tools(
     def download(_url: str, destination: Path) -> None:
         destination.write_bytes(archive_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
 
     with pytest.raises(YaatvError, match="did not contain bin/ffmpeg.exe"):
         install_windows_ffmpeg(
@@ -150,7 +150,7 @@ def test_install_linux_ffmpeg_rejects_corrupt_zip(
     def download(_url: str, destination: Path) -> None:
         destination.write_bytes(archive_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
 
     with pytest.raises(YaatvError, match="ffmpeg archive is not a valid ZIP file"):
         install_linux_ffmpeg(
@@ -176,7 +176,7 @@ def test_install_macos_ffmpeg_rejects_zip_without_requested_tool(
     def download(url: str, destination: Path) -> None:
         destination.write_bytes(archive_by_url[url])
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
 
     with pytest.raises(YaatvError, match="ffmpeg archive did not contain ffmpeg"):
         install_macos_ffmpeg(
@@ -417,7 +417,7 @@ def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     def download(_url: str, destination: Path) -> None:
         destination.write_bytes(archive_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
@@ -449,8 +449,8 @@ def test_install_ffmpeg_rejects_unusable_installed_tool(
             return ToolHealth(path=path, state="blocked", detail="Access is denied")
         return ToolHealth(path=path, state="ok", version="test")
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
-    monkeypatch.setattr("yaatv.cli.check_tool_health", check_health)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install.check_tool_health", check_health)
 
     with pytest.raises(YaatvError, match="Installed ffprobe.exe could not run"):
         install_windows_ffmpeg(
@@ -477,7 +477,7 @@ def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     def download(url: str, destination: Path) -> None:
         destination.write_bytes(archive_by_url[url])
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
@@ -511,7 +511,7 @@ def test_install_macos_ffmpeg_extracts_ffmpeg_and_ffprobe(
     def download(url: str, destination: Path) -> None:
         destination.write_bytes(archive_by_url[url])
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
@@ -547,7 +547,7 @@ def test_install_macos_ffmpeg_uses_arm64_downloads(
         destination.write_bytes(archive_by_url[url])
 
     monkeypatch.setattr("platform.machine", lambda: "arm64")
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
 
@@ -587,7 +587,7 @@ def test_windows_ffmpeg_fallback_on_download_error(
             raise OSError("connection refused")
         destination.write_bytes(archive_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
@@ -626,7 +626,7 @@ def test_windows_ffmpeg_fallback_on_checksum_mismatch(
         else:
             destination.write_bytes(archive_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
@@ -653,7 +653,7 @@ def test_windows_ffmpeg_all_sources_fail_raises_aggregate_error(
             raise OSError("server down 503")
         destination.write_bytes(b"mismatch data")
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
 
@@ -702,7 +702,7 @@ def test_linux_ffmpeg_fallback_on_primary_failure(
         elif "f-ffprobe" in url:
             destination.write_bytes(ffprobe_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
@@ -741,7 +741,7 @@ def test_linux_ffmpeg_all_sources_fail_raises_aggregate_error(
     def download(url: str, destination: Path) -> None:
         raise OSError("network timeout")
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
 
@@ -789,7 +789,7 @@ def test_macos_ffmpeg_fallback_on_primary_failure(
         elif "f-ffprobe" in url:
             destination.write_bytes(ffprobe_bytes)
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
@@ -828,7 +828,7 @@ def test_macos_ffmpeg_all_sources_fail_raises_aggregate_error(
     def download(url: str, destination: Path) -> None:
         raise OSError("service unavailable")
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     install_dir = tmp_path / "yaatv" / "bin"
     stderr = StringIO()
 
@@ -886,41 +886,41 @@ def test_install_ffmpeg_dispatches_by_platform(monkeypatch: pytest.MonkeyPatch, 
     dispatched: list[str] = []
 
     monkeypatch.setattr(
-        "yaatv.cli.install_windows_ffmpeg",
+        "yaatv.ffmpeg.install.install_windows_ffmpeg",
         lambda **_kwargs: dispatched.append("windows") or tmp_path,
     )
     monkeypatch.setattr(
-        "yaatv.cli.install_linux_ffmpeg",
+        "yaatv.ffmpeg.install.install_linux_ffmpeg",
         lambda **_kwargs: dispatched.append("linux") or tmp_path,
     )
     monkeypatch.setattr(
-        "yaatv.cli.install_macos_ffmpeg",
+        "yaatv.ffmpeg.install.install_macos_ffmpeg",
         lambda **_kwargs: dispatched.append("macos") or tmp_path,
     )
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.install._get_platform_info",
         lambda: PlatformInfo(os_family="windows", arch="x64", label="Windows x64", is_supported=True),
     )
     install_ffmpeg(install_dir=tmp_path)
     assert dispatched == ["windows"]
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.install._get_platform_info",
         lambda: PlatformInfo(os_family="linux", arch="x64", label="Linux x64", is_supported=True),
     )
     install_ffmpeg(install_dir=tmp_path)
     assert dispatched == ["windows", "linux"]
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.install._get_platform_info",
         lambda: PlatformInfo(os_family="macos", arch="arm64", label="macOS arm64", is_supported=True),
     )
     install_ffmpeg(install_dir=tmp_path)
     assert dispatched == ["windows", "linux", "macos"]
 
     monkeypatch.setattr(
-        "yaatv.cli._get_platform_info",
+        "yaatv.ffmpeg.install._get_platform_info",
         lambda: PlatformInfo(os_family="other", arch="x64", label="Other x64", is_supported=False),
     )
     with pytest.raises(YaatvError, match="yaatv --install-ffmpeg is not supported on this system"):
@@ -1010,7 +1010,7 @@ def test_install_unix_ffmpeg_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     def download(url: str, destination: Path) -> None:
         destination.write_bytes(archive_by_url[url])
 
-    monkeypatch.setattr("yaatv.cli._download_url", download)
+    monkeypatch.setattr("yaatv.ffmpeg.install._download_url", download)
     _mark_installed_tools_healthy(monkeypatch)
 
     install_dir = tmp_path / "yaatv" / "bin"
