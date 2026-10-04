@@ -16,10 +16,15 @@ yaatv/
 │   ├── conftest.py          # Pytest configuration
 │   ├── test_project.py      # Packaging, versioning, and repository contracts
 │   ├── test_cli.py          # Public CLI interface, flags, and argument parsing
-│   ├── test_media.py        # Metadata, artwork, audio planning, and path normalization
-│   ├── test_ffmpeg.py       # FFmpeg command generation, filtergraphs, and progress streaming
-│   ├── test_system.py       # Binary discovery, health checks, and platform detection
-│   ├── test_installer.py    # Managed FFmpeg installer, downloads, and rollback
+│   ├── test_planning.py     # Audio planning, quality warnings, and output geometry
+│   ├── test_media.py        # Metadata, artwork, input classification, and image validation
+│   ├── test_output.py       # Output naming, path normalization, and file details
+│   ├── test_ffmpeg_command.py # FFmpeg command generation, profiles, filtergraphs, and metadata
+│   ├── test_ffmpeg_runner.py # FFmpeg execution, progress streaming, probing, and verification
+│   ├── test_ffmpeg_tools.py # Binary discovery, health checks, and platform detection
+│   ├── test_diagnostics.py  # `--scry` diagnostics and tool reports
+│   ├── test_ffmpeg_install.py # Managed FFmpeg installer, downloads, and rollback
+│   ├── test_system.py       # CLI tool resolution and dispatch behavior
 │   ├── test_workflow.py     # End-to-end run orchestration, dry-runs, and overwrite flows
 │   └── test_ffmpeg_integration.py # End-to-end integration tests requiring real FFmpeg/FFprobe
 ├── docs/                    # Engineering documentation and assets

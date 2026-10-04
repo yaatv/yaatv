@@ -1,5 +1,3 @@
-import subprocess
-from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -13,28 +11,15 @@ from tests._support import (
     _video_scale,
     _video_tail,
 )
-from yaatv.cli import (
-    FFMPEG_ERROR_TAIL_LINES,
+from yaatv.ffmpeg.command import (
     OUTPUT_PROFILES,
-    OUTPUT_SIZES,
     YAATV_PROVENANCE,
-    AudioMetadata,
-    OutputStats,
-    YaatvError,
     build_ffmpeg_command,
     build_output_metadata_args,
-    choose_audio_plan,
-    format_duration,
-    format_file_details,
-    format_file_size,
-    format_output_stats,
     output_profile_for_path,
-    output_size,
-    probe_output,
-    quote_command,
-    run_ffmpeg,
-    verify_output_stats,
 )
+from yaatv.models import AudioMetadata
+from yaatv.planning import OUTPUT_SIZES, choose_audio_plan, output_size
 
 
 @pytest.mark.parametrize(
@@ -64,8 +49,6 @@ def test_media_contract_defines_every_supported_output_size(
     assert output_size(resolution, aspect) == expected_size
     assert command[command.index("-vf") + 1] == _pad_filter(width, height)
 
-
-
 def test_output_profiles_define_supported_container_contracts() -> None:
     assert set(OUTPUT_PROFILES) == {".mp4", ".mov"}
 
@@ -81,8 +64,6 @@ def test_output_profiles_define_supported_container_contracts() -> None:
     assert mov_profile.faststart_args == ()
     assert mov_profile.output_format_args == ("-f", "mov")
     assert mov_profile.pixel_format == "yuv422p10le"
-
-
 
 @pytest.mark.parametrize(
     ("name", "kwargs", "expected_prefix", "video_option", "expected_video", "expected_maps"),
@@ -179,8 +160,6 @@ def test_media_contract_command_profiles_preserve_branch_invariants(
         if options["output_path"] == Path("out.mp4"):
             assert command[command.index("-movflags") + 1] == "+faststart"
 
-
-
 @pytest.mark.parametrize(
     ("output_duration", "expected_shortest", "expected_duration"),
     [
@@ -211,8 +190,6 @@ def test_media_contract_default_output_tail_order(
     else:
         assert command[command.index("-t") + 1] == expected_duration
         assert command.index("-vf") < command.index("-t") < len(command) - 1
-
-
 
 def test_transcode_command_uses_required_youtube_settings() -> None:
     plan = choose_audio_plan(
@@ -251,8 +228,6 @@ def test_transcode_command_uses_required_youtube_settings() -> None:
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
 
-
-
 def test_background_color_changes_default_pad_color() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
@@ -277,8 +252,6 @@ def test_background_color_changes_default_pad_color() -> None:
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
 
-
-
 def test_square_command_uses_square_canvas() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
@@ -301,8 +274,6 @@ def test_square_command_uses_square_canvas() -> None:
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
-
-
 
 def test_vertical_background_blur_command_uses_vertical_canvas() -> None:
     plan = choose_audio_plan(
@@ -330,8 +301,6 @@ def test_vertical_background_blur_command_uses_vertical_canvas() -> None:
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
-
-
 
 def test_background_image_command_overlays_cover_on_background() -> None:
     plan = choose_audio_plan(
@@ -379,8 +348,6 @@ def test_background_image_command_overlays_cover_on_background() -> None:
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
 
-
-
 def test_background_blur_command_splits_cover_image() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
@@ -410,8 +377,6 @@ def test_background_blur_command_splits_cover_image() -> None:
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709[v]"
     )
-
-
 
 def test_color_only_command_uses_generated_video_stream() -> None:
     plan = choose_audio_plan(
@@ -445,8 +410,6 @@ def test_color_only_command_uses_generated_video_stream() -> None:
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "0:a:0"
     assert command[command.index("-t") + 1] == "30"
 
-
-
 def test_command_uses_shortest_without_duration_cap() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="mp3", bitrate=128_000, sample_rate=48_000, artist=None, title=None),
@@ -466,8 +429,6 @@ def test_command_uses_shortest_without_duration_cap() -> None:
 
     assert "-shortest" in command
     assert "-t" not in command
-
-
 
 def test_command_uses_duration_cap_when_audio_duration_is_known() -> None:
     plan = choose_audio_plan(
@@ -489,200 +450,6 @@ def test_command_uses_duration_cap_when_audio_duration_is_known() -> None:
     assert "-shortest" in command
     assert command[command.index("-t") + 1] == "145"
     assert command.index("-t") < len(command) - 1
-
-
-
-def test_quote_command_uses_posix_quoting(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("yaatv.cli.os.name", "posix")
-
-    assert quote_command(["ffmpeg", "audio files/track's.flac", "a&b", "plain"]) == (
-        "ffmpeg 'audio files/track'\"'\"'s.flac' 'a&b' plain"
-    )
-
-
-
-def test_quote_command_preserves_windows_quoting(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: list[list[str]] = []
-
-    def list2cmdline(command: list[str]) -> str:
-        captured.append(command)
-        return "windows command"
-
-    monkeypatch.setattr("yaatv.cli.os.name", "nt")
-    monkeypatch.setattr("yaatv.ffmpeg.runner.subprocess.list2cmdline", list2cmdline)
-
-    assert quote_command(["ffmpeg", "audio files/track.flac"]) == "windows command"
-    assert captured == [["ffmpeg", "audio files/track.flac"]]
-
-
-
-def test_run_ffmpeg_streams_bounded_progress(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    class FakeProcess:
-        stderr = StringIO(
-            "ffmpeg diagnostic\n"
-            "out_time_us=1000000\n"
-            "progress=continue\n"
-            "out_time_us=5500000\n"
-            "progress=continue\n"
-        )
-
-        def wait(self) -> int:
-            return 0
-
-    def fake_popen(
-        command: list[str],
-        *,
-        stderr: object,
-        text: bool,
-        encoding: str | None = None,
-        errors: str | None = None,
-    ) -> object:
-        captured.update(
-            {
-                "command": command,
-                "stderr": stderr,
-                "text": text,
-                "encoding": encoding,
-                "errors": errors,
-            }
-        )
-        return FakeProcess()
-
-    monkeypatch.setattr("subprocess.Popen", fake_popen)
-    output = StringIO()
-
-    result = run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"], duration=10, stderr=output)
-
-    assert result == 0
-    assert result.stderr_tail == "ffmpeg diagnostic"
-    assert output.getvalue() == "Encoding: 10%\nEncoding: 50%\nEncoding: 100%\n"
-    assert captured == {
-        "command": ["ffmpeg", "-i", "audio.wav", "-progress", "pipe:2", "-nostats", "out.mp4"],
-        "stderr": subprocess.PIPE,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-    }
-
-
-
-def test_run_ffmpeg_verbose_inherits_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured: dict[str, object] = {}
-
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        captured.update(kwargs)
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    assert run_ffmpeg(["ffmpeg", "-version"], verbose=True) == 0
-    assert captured["stderr"] is None
-
-
-
-def test_run_ffmpeg_without_duration_streams_silently(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeProcess:
-        stderr = StringIO("out_time_us=5000000\nprogress=end\n")
-
-        def wait(self) -> int:
-            return 0
-
-    monkeypatch.setattr("subprocess.Popen", lambda *_args, **_kwargs: FakeProcess())
-    output = StringIO()
-
-    result = run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"], stderr=output)
-
-    assert result == 0
-    assert result.stderr_tail == ""
-    assert output.getvalue() == ""
-
-
-
-def test_run_ffmpeg_keeps_bounded_error_tail(monkeypatch: pytest.MonkeyPatch) -> None:
-    ffmpeg_lines = [f"line {index}" for index in range(FFMPEG_ERROR_TAIL_LINES + 3)]
-
-    class FakeProcess:
-        stderr = StringIO("\n".join(ffmpeg_lines))
-
-        def wait(self) -> int:
-            return 1
-
-    monkeypatch.setattr("subprocess.Popen", lambda *_args, **_kwargs: FakeProcess())
-
-    result = run_ffmpeg(["ffmpeg", "-version"])
-
-    assert result == 1
-    assert result.stderr_tail == "\n".join(ffmpeg_lines[-FFMPEG_ERROR_TAIL_LINES:])
-
-
-
-def test_run_ffmpeg_reports_missing_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_popen(_command: list[str], **_kwargs: object) -> object:
-        raise FileNotFoundError(2, "The system cannot find the file specified")
-
-    monkeypatch.setattr("subprocess.Popen", fake_popen)
-
-    with pytest.raises(YaatvError, match="FFmpeg was not found"):
-        run_ffmpeg(["ffmpeg", "-version"])
-
-
-
-def test_run_ffmpeg_reports_unrunnable_ffmpeg(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_popen(_command: list[str], **_kwargs: object) -> object:
-        raise PermissionError(13, "Access is denied")
-
-    monkeypatch.setattr("subprocess.Popen", fake_popen)
-
-    with pytest.raises(YaatvError, match="Could not run FFmpeg"):
-        run_ffmpeg(["ffmpeg", "-i", "audio.wav", "out.mp4"])
-
-
-
-def test_probe_output_reports_unrunnable_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        raise PermissionError(13, "Access is denied")
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    with pytest.raises(YaatvError, match="Could not run FFprobe"):
-        probe_output("ffprobe", Path("out.mp4"))
-
-
-
-def test_probe_output_reports_missing_ffprobe(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(*_args: object, **_kwargs: object) -> object:
-        raise FileNotFoundError
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    with pytest.raises(YaatvError, match="FFprobe was not found"):
-        probe_output("ffprobe", Path("out.mp4"))
-
-
-
-def test_probe_output_reports_ffprobe_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 1, stdout="", stderr="bad output")
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    with pytest.raises(YaatvError, match="bad output"):
-        probe_output("ffprobe", Path("out.mp4"))
-
-
-
-def test_probe_output_reports_invalid_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(command, 0, stdout="{", stderr="")
-
-    monkeypatch.setattr("subprocess.run", fake_run)
-
-    with pytest.raises(YaatvError, match="Could not parse FFprobe output"):
-        probe_output("ffprobe", Path("out.mp4"))
-
-
 
 def test_prores_command_uses_correct_encoder_settings() -> None:
     plan = choose_audio_plan(
@@ -713,8 +480,6 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
         "format=yuv422p10le,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
-
-
 
 def test_prores_background_image_uses_yuv422_overlay() -> None:
     plan = choose_audio_plan(
@@ -748,8 +513,6 @@ def test_prores_background_image_uses_yuv422_overlay() -> None:
         command.index("-filter_complex") + 1
     ]
 
-
-
 def test_h264_command_unchanged_without_is_prores() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
@@ -771,191 +534,6 @@ def test_h264_command_unchanged_without_is_prores() -> None:
     assert command[command.index("-movflags") + 1] == "+faststart"
     assert "-f" not in command or command[command.index("-f") + 1] != "mov"
 
-
-
-def test_verify_prores_output_stats() -> None:
-    stats = OutputStats(
-        width=1920,
-        height=1080,
-        video_codec="prores",
-        pixel_format="yuv422p10le",
-        color_range="tv",
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    verify_output_stats(stats, (1920, 1080), is_prores=True)
-
-    assert format_output_stats(stats) == (
-        "1920x1080, ProRes 422/yuv422p10le, bt709, 1fps video, AAC 48kHz"
-    )
-
-
-
-def test_verify_prores_output_accepts_unreported_color_range() -> None:
-    stats = OutputStats(
-        width=1920,
-        height=1080,
-        video_codec="prores",
-        pixel_format="yuv422p10le",
-        color_range=None,
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    verify_output_stats(stats, (1920, 1080), is_prores=True)
-
-
-
-def test_verify_prores_output_rejects_h264_in_prores_mode() -> None:
-    stats = OutputStats(
-        width=1920,
-        height=1080,
-        video_codec="h264",
-        pixel_format="yuv420p",
-        color_range="tv",
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    with pytest.raises(YaatvError, match="expected ProRes video"):
-        verify_output_stats(stats, (1920, 1080), is_prores=True)
-
-
-
-def test_verify_output_stats_accepts_expected_youtube_profile() -> None:
-    stats = OutputStats(
-        width=1920,
-        height=1080,
-        video_codec="h264",
-        pixel_format="yuv420p",
-        color_range="tv",
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    verify_output_stats(stats, (1920, 1080))
-
-    assert format_output_stats(stats) == (
-        "1920x1080, H.264/yuv420p, bt709, 1fps video, AAC 48kHz"
-    )
-
-
-
-def test_verify_output_stats_accepts_square_profile() -> None:
-    stats = OutputStats(
-        width=1080,
-        height=1080,
-        video_codec="h264",
-        pixel_format="yuv420p",
-        color_range="tv",
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    verify_output_stats(stats, output_size("1080p", "square"))
-
-    assert format_output_stats(stats) == (
-        "1080x1080, H.264/yuv420p, bt709, 1fps video, AAC 48kHz"
-    )
-
-
-
-def test_format_file_details_prints_size_and_duration(tmp_path: Path) -> None:
-    output = tmp_path / "out.mp4"
-    output.write_bytes(b"0" * 1_048_576)
-
-    assert format_file_details(output, 222.4) == "1.0 MB, 3:42"
-
-
-
-def test_format_file_details_omits_unavailable_values(tmp_path: Path) -> None:
-    output = tmp_path / "missing.mp4"
-
-    assert format_file_details(output, None) is None
-    assert format_duration(3661) == "1:01:01"
-
-
-
-def test_verify_output_stats_rejects_unreported_h264_color_range() -> None:
-    stats = OutputStats(
-        width=1920,
-        height=1080,
-        video_codec="h264",
-        pixel_format="yuv420p",
-        color_range=None,
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    with pytest.raises(YaatvError, match="expected limited color range, got unknown"):
-        verify_output_stats(stats, (1920, 1080))
-
-
-
-def test_verify_output_stats_rejects_wrong_profile() -> None:
-    stats = OutputStats(
-        width=1280,
-        height=720,
-        video_codec="h264",
-        pixel_format="yuv420p",
-        color_range="tv",
-        color_space="bt709",
-        color_transfer="bt709",
-        color_primaries="bt709",
-        frame_rate=1.0,
-        audio_codec="aac",
-        audio_sample_rate=48_000,
-    )
-
-    with pytest.raises(YaatvError, match="expected 1920x1080"):
-        verify_output_stats(stats, (1920, 1080))
-
-
-
-def test_format_file_size_uses_kb_below_one_megabyte() -> None:
-    assert format_file_size(512 * 1024) == "512.0 KB"
-
-
-
-def test_format_file_size_uses_mb_for_ordinary_files() -> None:
-    assert format_file_size(2 * 1024 * 1024) == "2.0 MB"
-
-
-
-def test_format_file_size_uses_gb_at_exactly_one_gigabyte() -> None:
-    assert format_file_size(1024 * 1024 * 1024) == "1.0 GB"
-
-
-
-def test_format_file_size_uses_gb_above_one_gigabyte() -> None:
-    assert format_file_size(6 * 1024 * 1024 * 1024) == "6.0 GB"
-
-
 def test_build_output_metadata_args_with_none_or_empty_metadata() -> None:
     args_none = build_output_metadata_args(None)
     assert args_none == ("-metadata", f"comment={YAATV_PROVENANCE}")
@@ -963,7 +541,6 @@ def test_build_output_metadata_args_with_none_or_empty_metadata() -> None:
     empty_meta = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
     args_empty = build_output_metadata_args(empty_meta)
     assert args_empty == ("-metadata", f"comment={YAATV_PROVENANCE}")
-
 
 def test_build_output_metadata_args_with_full_metadata() -> None:
     metadata = AudioMetadata(
@@ -1001,7 +578,6 @@ def test_build_output_metadata_args_with_full_metadata() -> None:
         f"comment={YAATV_PROVENANCE}",
     )
 
-
 def test_build_output_metadata_args_omits_missing_and_blank_fields() -> None:
     metadata = AudioMetadata(
         codec="flac",
@@ -1026,7 +602,6 @@ def test_build_output_metadata_args_omits_missing_and_blank_fields() -> None:
         f"comment={YAATV_PROVENANCE}",
     )
 
-
 def test_build_output_metadata_args_never_includes_private_or_ownership_tags() -> None:
     metadata = AudioMetadata(
         codec="flac",
@@ -1040,7 +615,6 @@ def test_build_output_metadata_args_never_includes_private_or_ownership_tags() -
     forbidden = ["copyright", "publisher", "owner", "path", "home", "users", "hostname"]
     for word in forbidden:
         assert f"{word}=" not in joined
-
 
 def test_build_ffmpeg_command_includes_metadata_in_all_modes() -> None:
     plan = choose_audio_plan(
@@ -1129,5 +703,3 @@ def test_build_ffmpeg_command_includes_metadata_in_all_modes() -> None:
     assert "title=Song Title" in cmd_prores
     assert f"comment={YAATV_PROVENANCE}" in cmd_prores
     assert cmd_prores[-1] == "out.mov"
-
-

@@ -9,11 +9,11 @@ except ModuleNotFoundError:  # pragma: no cover
     import tomli as tomllib  # type: ignore[no-redef]
 
 from yaatv import __version__
-from yaatv.cli import (
+from yaatv.media import (
     KNOWN_AUDIO_EXTENSIONS,
     KNOWN_IMAGE_EXTENSIONS,
-    SUPPORTED_OUTPUT_EXTENSIONS,
 )
+from yaatv.output import SUPPORTED_OUTPUT_EXTENSIONS
 
 
 def _readme_format_extensions(readme: str, input_type: str) -> set[str]:

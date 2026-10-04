@@ -12,7 +12,9 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from yaatv.cli import YAATV_PROVENANCE, probe_output, run
+from yaatv.cli import run
+from yaatv.ffmpeg.command import YAATV_PROVENANCE
+from yaatv.ffmpeg.runner import probe_output
 
 pytestmark = pytest.mark.integration
 

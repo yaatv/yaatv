@@ -9,14 +9,9 @@ from tests._support import (
     _TtyInput,
     _video_scale,
 )
-from yaatv.cli import (
-    AudioMetadata,
-    FFmpegResult,
-    OutputStats,
-    YaatvError,
-    confirm_overwrite,
-    run,
-)
+from yaatv.cli import run
+from yaatv.models import AudioMetadata, FFmpegResult, OutputStats, YaatvError
+from yaatv.output import confirm_overwrite
 
 
 def test_run_dry_run_prints_command_without_encoding(
