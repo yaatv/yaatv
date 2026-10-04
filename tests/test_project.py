@@ -116,6 +116,8 @@ def test_ci_workflow_includes_cross_platform_matrix() -> None:
     assert 'python-version: "3.10"' not in workflow
     assert '"3.11"' in workflow
     assert '"3.12"' in workflow
+    assert '"3.13"' in workflow
+    assert '"3.14"' in workflow
     assert "Install FFmpeg (Linux)" in workflow
     assert "Install FFmpeg (macOS)" in workflow
     assert "Install FFmpeg (Windows)" in workflow
@@ -182,5 +184,4 @@ def test_core_engineering_docs_and_assets_remain() -> None:
     for path in required_paths:
         assert path.is_file(), f"Required engineering doc or asset missing: {path}"
         assert path.stat().st_size > 0, f"Required file is empty: {path}"
-
 
