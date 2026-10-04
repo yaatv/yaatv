@@ -509,7 +509,7 @@ def test_quote_command_preserves_windows_quoting(monkeypatch: pytest.MonkeyPatch
         return "windows command"
 
     monkeypatch.setattr("yaatv.cli.os.name", "nt")
-    monkeypatch.setattr("yaatv.cli.subprocess.list2cmdline", list2cmdline)
+    monkeypatch.setattr("yaatv.ffmpeg.runner.subprocess.list2cmdline", list2cmdline)
 
     assert quote_command(["ffmpeg", "audio files/track.flac"]) == "windows command"
     assert captured == [["ffmpeg", "audio files/track.flac"]]
