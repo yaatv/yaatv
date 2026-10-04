@@ -12,7 +12,7 @@ from tests._support import (
     _mark_installed_tools_healthy,
     _single_tool_zip_bytes,
 )
-from yaatv.cli import (
+from yaatv.ffmpeg.install import (
     FFMPEG_DOWNLOAD_USER_AGENT,
     LINUX_FFMPEG_ARCHIVE_SHA256,
     LINUX_FFMPEG_ARCHIVE_URL,
@@ -30,11 +30,6 @@ from yaatv.cli import (
     WINDOWS_FFMPEG_ARCHIVE_SHA256,
     WINDOWS_FFMPEG_ARCHIVE_URL,
     WINDOWS_FFMPEG_SOURCES,
-    PlatformInfo,
-    ToolHealth,
-    UnixFFmpegSource,
-    WindowsFFmpegSource,
-    YaatvError,
     _download_url,
     _install_staged_tools,
     _install_unix_ffmpeg,
@@ -44,7 +39,13 @@ from yaatv.cli import (
     install_linux_ffmpeg,
     install_macos_ffmpeg,
     install_windows_ffmpeg,
-    run,
+)
+from yaatv.models import (
+    PlatformInfo,
+    ToolHealth,
+    UnixFFmpegSource,
+    WindowsFFmpegSource,
+    YaatvError,
 )
 
 
@@ -53,8 +54,6 @@ def test_windows_installer_uses_pinned_versioned_release_archive() -> None:
         "https://github.com/GyanD/codexffmpeg/releases/download/8.1.2/ffmpeg-8.1.2-essentials_build.zip"
     )
     assert WINDOWS_FFMPEG_ARCHIVE_SHA256 == "db580001caa24ac104c8cb856cd113a87b0a443f7bdf47d8c12b1d740584a2ec"
-
-
 
 def test_linux_installer_uses_pinned_versioned_release_archives() -> None:
     assert LINUX_FFMPEG_ARCHIVE_URL == (
@@ -66,8 +65,6 @@ def test_linux_installer_uses_pinned_versioned_release_archives() -> None:
     assert LINUX_FFMPEG_ARCHIVE_SHA256 == "fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f"
     assert LINUX_FFPROBE_ARCHIVE_SHA256 == "3f428c49070be3d24ec338602b76d412e401ffcb8a5641ef0e729181a232fc32"
 
-
-
 def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
     assert MACOS_FFMPEG_ARCHIVE_URL == (
         "https://ffmpeg.martin-riedl.de/download/macos/amd64/1789931006_9.0.2/ffmpeg.zip"
@@ -77,26 +74,6 @@ def test_macos_x64_installer_uses_pinned_reachable_build_server() -> None:
     )
     assert MACOS_FFMPEG_ARCHIVE_SHA256 == "7c6b4125b191cbf773832dc51f424cf2b6bb7da43007d1e066f95909e47cacd4"
     assert MACOS_FFPROBE_ARCHIVE_SHA256 == "2322438ed2f6319a691291b247d09c69dcaa3a982460d1f269a7e1af335cfdfd"
-
-
-
-def test_run_install_ffmpeg_uses_general_installer(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    called = False
-
-    def install(*, stderr: StringIO) -> Path:
-        nonlocal called
-        called = True
-        return tmp_path
-
-    monkeypatch.setattr("yaatv.cli.install_ffmpeg", install)
-
-    assert run(["--install-ffmpeg"], stderr=StringIO()) == 0
-    assert called
-
-
 
 def test_install_ffmpeg_rejects_checksum_failure(
     monkeypatch: pytest.MonkeyPatch,
@@ -115,8 +92,6 @@ def test_install_ffmpeg_rejects_checksum_failure(
         )
 
     assert not (tmp_path / "yaatv" / "bin").exists()
-
-
 
 def test_install_windows_ffmpeg_rejects_archive_without_required_tools(
     monkeypatch: pytest.MonkeyPatch,
@@ -139,8 +114,6 @@ def test_install_windows_ffmpeg_rejects_archive_without_required_tools(
             stderr=StringIO(),
         )
 
-
-
 def test_install_linux_ffmpeg_rejects_corrupt_zip(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -159,8 +132,6 @@ def test_install_linux_ffmpeg_rejects_corrupt_zip(
             ffprobe_expected_sha256=hashlib.sha256(archive_bytes).hexdigest(),
             stderr=StringIO(),
         )
-
-
 
 def test_install_macos_ffmpeg_rejects_zip_without_requested_tool(
     monkeypatch: pytest.MonkeyPatch,
@@ -188,8 +159,6 @@ def test_install_macos_ffmpeg_rejects_zip_without_requested_tool(
             stderr=StringIO(),
         )
 
-
-
 def test_download_url_uses_timeout(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -214,8 +183,6 @@ def test_download_url_uses_timeout(
     }
     assert destination.read_bytes() == b"archive"
 
-
-
 def test_download_url_retries_once_after_network_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -238,8 +205,6 @@ def test_download_url_retries_once_after_network_failure(
     assert attempts == 2
     assert destination.read_bytes() == b"archive"
 
-
-
 def test_download_url_reports_failure_after_retry(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -259,15 +224,11 @@ def test_download_url_reports_failure_after_retry(
 
     assert attempts == 2
 
-
-
 def test_download_url_rejects_non_https_scheme(tmp_path: Path) -> None:
     with pytest.raises(YaatvError, match="Unsupported download URL scheme"):
         _download_url("http://example.invalid/ffmpeg.zip", tmp_path / "ffmpeg.zip")
     with pytest.raises(YaatvError, match="Unsupported download URL scheme"):
         _download_url("file:///etc/passwd", tmp_path / "ffmpeg.zip")
-
-
 
 def test_install_staged_tools_preserves_existing_tool_when_replace_fails(
     monkeypatch: pytest.MonkeyPatch,
@@ -290,8 +251,6 @@ def test_install_staged_tools_preserves_existing_tool_when_replace_fails(
 
     assert (install_dir / "ffmpeg").read_bytes() == b"old ffmpeg"
     assert not (install_dir / ".ffmpeg.tmp").exists()
-
-
 
 def test_install_staged_tools_rolls_back_full_pair_when_second_replace_fails(
     monkeypatch: pytest.MonkeyPatch,
@@ -330,8 +289,6 @@ def test_install_staged_tools_rolls_back_full_pair_when_second_replace_fails(
     assert not (install_dir / ".ffmpeg.bak").exists()
     assert not (install_dir / ".ffprobe.bak").exists()
 
-
-
 def test_install_staged_tools_rolls_back_pair_when_only_one_tool_existed(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -361,8 +318,6 @@ def test_install_staged_tools_rolls_back_pair_when_only_one_tool_existed(
     assert not (install_dir / ".ffmpeg.tmp").exists()
     assert not (install_dir / ".ffprobe.bak").exists()
 
-
-
 def test_install_staged_tools_first_install_rolls_back_to_empty(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -383,8 +338,6 @@ def test_install_staged_tools_first_install_rolls_back_to_empty(
 
     assert list(install_dir.iterdir()) == []
 
-
-
 def test_install_staged_tools_removes_backups_after_successful_install(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -404,8 +357,6 @@ def test_install_staged_tools_removes_backups_after_successful_install(
     assert (install_dir / "ffprobe").read_bytes() == b"new ffprobe"
     assert not (install_dir / ".ffmpeg.bak").exists()
     assert not (install_dir / ".ffprobe.bak").exists()
-
-
 
 def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
@@ -430,8 +381,6 @@ def test_install_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
     assert (install_dir / "ffprobe.exe").read_bytes() == b"ffprobe"
     assert not (install_dir / "ffplay.exe").exists()
-
-
 
 def test_install_ffmpeg_rejects_unusable_installed_tool(
     monkeypatch: pytest.MonkeyPatch,
@@ -460,8 +409,6 @@ def test_install_ffmpeg_rejects_unusable_installed_tool(
         )
 
     assert "Installed FFmpeg and FFprobe" not in stderr.getvalue()
-
-
 
 def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
@@ -494,8 +441,6 @@ def test_install_linux_ffmpeg_extracts_only_ffmpeg_and_ffprobe(
     if os.name != "nt":
         assert (install_dir / "ffmpeg").stat().st_mode & 0o111
         assert (install_dir / "ffprobe").stat().st_mode & 0o111
-
-
 
 def test_install_macos_ffmpeg_extracts_ffmpeg_and_ffprobe(
     monkeypatch: pytest.MonkeyPatch,
@@ -530,8 +475,6 @@ def test_install_macos_ffmpeg_extracts_ffmpeg_and_ffprobe(
         assert (install_dir / "ffmpeg").stat().st_mode & 0o111
         assert (install_dir / "ffprobe").stat().st_mode & 0o111
 
-
-
 def test_install_macos_ffmpeg_uses_arm64_downloads(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -560,8 +503,6 @@ def test_install_macos_ffmpeg_uses_arm64_downloads(
 
     assert (install_dir / "ffmpeg").read_bytes() == b"arm64 ffmpeg"
     assert (install_dir / "ffprobe").read_bytes() == b"arm64 ffprobe"
-
-
 
 def test_windows_ffmpeg_fallback_on_download_error(
     monkeypatch: pytest.MonkeyPatch,
@@ -599,8 +540,6 @@ def test_windows_ffmpeg_fallback_on_download_error(
     assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
     assert (install_dir / "ffprobe.exe").read_bytes() == b"ffprobe"
 
-
-
 def test_windows_ffmpeg_fallback_on_checksum_mismatch(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -637,8 +576,6 @@ def test_windows_ffmpeg_fallback_on_checksum_mismatch(
     assert "Downloaded FFmpeg for Windows x64 (fallback)" in output
     assert (install_dir / "ffmpeg.exe").read_bytes() == b"ffmpeg"
 
-
-
 def test_windows_ffmpeg_all_sources_fail_raises_aggregate_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -665,8 +602,6 @@ def test_windows_ffmpeg_all_sources_fail_raises_aggregate_error(
     expected_m1_err = "mirror-1: Could not download FFmpeg for Windows x64 (mirror-1): server down 503"
     assert expected_m1_err in error_text
     assert "mirror-2: FFmpeg archive checksum mismatch" in error_text
-
-
 
 def test_linux_ffmpeg_fallback_on_primary_failure(
     monkeypatch: pytest.MonkeyPatch,
@@ -715,8 +650,6 @@ def test_linux_ffmpeg_fallback_on_primary_failure(
     assert (install_dir / "ffmpeg").read_bytes() == b"linux-ffmpeg"
     assert (install_dir / "ffprobe").read_bytes() == b"linux-ffprobe"
 
-
-
 def test_linux_ffmpeg_all_sources_fail_raises_aggregate_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -752,8 +685,6 @@ def test_linux_ffmpeg_all_sources_fail_raises_aggregate_error(
     assert "All FFmpeg download sources for Linux x64 failed:" in error_text
     assert "primary: Could not download ffmpeg (primary): network timeout" in error_text
     assert "fallback: Could not download ffmpeg (fallback): network timeout" in error_text
-
-
 
 def test_macos_ffmpeg_fallback_on_primary_failure(
     monkeypatch: pytest.MonkeyPatch,
@@ -802,8 +733,6 @@ def test_macos_ffmpeg_fallback_on_primary_failure(
     assert (install_dir / "ffmpeg").read_bytes() == b"mac-ffmpeg"
     assert (install_dir / "ffprobe").read_bytes() == b"mac-ffprobe"
 
-
-
 def test_macos_ffmpeg_all_sources_fail_raises_aggregate_error(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -839,8 +768,6 @@ def test_macos_ffmpeg_all_sources_fail_raises_aggregate_error(
     assert "All FFmpeg download sources for" in error_text
     assert "mirror-1: Could not download ffmpeg (mirror-1): service unavailable" in error_text
     assert "mirror-2: Could not download ffmpeg (mirror-2): service unavailable" in error_text
-
-
 
 def test_configured_ffmpeg_sources_validity() -> None:
     assert len(WINDOWS_FFMPEG_SOURCES) >= 2
@@ -879,8 +806,6 @@ def test_configured_ffmpeg_sources_validity() -> None:
         assert len(source.ffprobe_expected_sha256) == 64
         int(source.ffmpeg_expected_sha256, 16)
         int(source.ffprobe_expected_sha256, 16)
-
-
 
 def test_install_ffmpeg_dispatches_by_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     dispatched: list[str] = []
@@ -926,8 +851,6 @@ def test_install_ffmpeg_dispatches_by_platform(monkeypatch: pytest.MonkeyPatch, 
     with pytest.raises(YaatvError, match="yaatv --install-ffmpeg is not supported on this system"):
         install_ffmpeg(install_dir=tmp_path)
 
-
-
 def test_resolve_windows_ffmpeg_sources() -> None:
     # Default sources
     defaults = _resolve_windows_ffmpeg_sources()
@@ -945,8 +868,6 @@ def test_resolve_windows_ffmpeg_sources() -> None:
     assert custom_url[0].name == "custom source"
     assert custom_url[0].archive_url == "https://example.com/custom.zip"
     assert custom_url[0].expected_sha256 == WINDOWS_FFMPEG_ARCHIVE_SHA256
-
-
 
 def test_resolve_unix_ffmpeg_sources() -> None:
     # Default sources
@@ -994,8 +915,6 @@ def test_resolve_unix_ffmpeg_sources() -> None:
     assert custom_url[0].ffprobe_archive_url == LINUX_FFPROBE_ARCHIVE_URL
     assert custom_url[0].ffprobe_expected_sha256 == LINUX_FFPROBE_ARCHIVE_SHA256
 
-
-
 def test_install_unix_ffmpeg_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     ffmpeg_bytes = _single_tool_zip_bytes("ffmpeg", b"unix-ff")
     ffprobe_bytes = _single_tool_zip_bytes("ffprobe", b"unix-fp")
@@ -1028,4 +947,3 @@ def test_install_unix_ffmpeg_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     assert result == install_dir
     assert (install_dir / "ffmpeg").read_bytes() == b"unix-ff"
     assert (install_dir / "ffprobe").read_bytes() == b"unix-fp"
-

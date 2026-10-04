@@ -6,155 +6,15 @@ import pytest
 from PIL import Image
 
 from tests._support import _image_bytes
-from yaatv.cli import (
-    MAX_FILENAME_LENGTH,
-    AudioMetadata,
-    YaatvError,
-    choose_audio_plan,
-    default_output_path,
+from yaatv.media import (
+    classify_files,
     extract_embedded_cover,
     input_format_warnings,
-    is_high_quality_aac,
-    is_lossless_codec,
-    normalize_output_path,
-    pad_seconds,
-    quality_warnings,
     read_audio_metadata,
-    resolve_output_path,
-    sanitize_filename,
     validate_image,
 )
-
-
-def test_high_quality_aac_is_copied() -> None:
-    metadata = AudioMetadata(
-        codec="mp4a.40.2",
-        bitrate=320_000,
-        sample_rate=48_000,
-        artist="Artist",
-        title="Title",
-    )
-
-    assert is_high_quality_aac(metadata)
-    assert choose_audio_plan(metadata, pad=0).codec_args == ("-c:a", "copy")
-
-
-
-def test_pad_rejects_high_quality_aac_copy_mode() -> None:
-    metadata = AudioMetadata(
-        codec="aac",
-        bitrate=384_000,
-        sample_rate=48_000,
-        artist=None,
-        title=None,
-    )
-
-    with pytest.raises(Exception, match="--pad cannot be used"):
-        choose_audio_plan(metadata, pad=1)
-
-
-
-def test_low_bitrate_warning_is_reported() -> None:
-    warnings = quality_warnings(
-        AudioMetadata(codec="mp3", bitrate=192_000, sample_rate=44_100, artist=None, title=None),
-        image_size=(1920, 1080),
-        target_size=(1920, 1080),
-    )
-
-    assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
-
-
-@pytest.mark.parametrize(
-    "codec",
-    [
-        "flac",
-        "oggflac",
-        "alac",
-        "applelossless",
-        "ape",
-        "monkeysaudio",
-        "wavpack",
-        "wv",
-        "truehd",
-        "tak",
-        "pcm",
-        "pcm_s16le",
-        "pcm_s24le",
-        "pcm_f32le",
-    ],
-)
-def test_lossless_audio_does_not_warn_on_low_bitrate(codec: str) -> None:
-    warnings = quality_warnings(
-        AudioMetadata(codec=codec, bitrate=128_000, sample_rate=44_100, artist=None, title=None),
-        image_size=(1920, 1080),
-        target_size=(1920, 1080),
-    )
-
-    assert warnings == []
-
-
-@pytest.mark.parametrize(
-    "codec",
-    [
-        "mp3",
-        "aac",
-        "opus",
-        "vorbis",
-        "ogg",
-        "wma",
-        "wav",
-        "wave",
-        "aiff",
-        "aif",
-        "adpcm_ms",
-        None,
-        "unknown",
-    ],
-)
-def test_lossy_and_unknown_audio_warns_on_low_bitrate(codec: str | None) -> None:
-    warnings = quality_warnings(
-        AudioMetadata(codec=codec, bitrate=192_000, sample_rate=44_100, artist=None, title=None),
-        image_size=(1920, 1080),
-        target_size=(1920, 1080),
-    )
-
-    assert warnings == ["source audio bitrate is 192kbps, below the 256kbps warning threshold"]
-
-
-def test_is_lossless_codec_recognition() -> None:
-    assert is_lossless_codec("flac") is True
-    assert is_lossless_codec("oggflac") is True
-    assert is_lossless_codec("alac") is True
-    assert is_lossless_codec("ALAC") is True
-    assert is_lossless_codec("applelossless") is True
-    assert is_lossless_codec("AppleLossless") is True
-    assert is_lossless_codec("ape") is True
-    assert is_lossless_codec("monkeysaudio") is True
-    assert is_lossless_codec("MonkeysAudio") is True
-    assert is_lossless_codec("wavpack") is True
-    assert is_lossless_codec("WavPack") is True
-    assert is_lossless_codec("wv") is True
-    assert is_lossless_codec("truehd") is True
-    assert is_lossless_codec("tak") is True
-    assert is_lossless_codec("pcm") is True
-    assert is_lossless_codec("PCM") is True
-    assert is_lossless_codec("pcm_s16le") is True
-    assert is_lossless_codec("pcm_s24le") is True
-    assert is_lossless_codec("pcm_f32le") is True
-
-    # Containers and lossy formats must not be recognized as lossless codecs
-    assert is_lossless_codec("wav") is False
-    assert is_lossless_codec("wave") is False
-    assert is_lossless_codec("aiff") is False
-    assert is_lossless_codec("AIFF") is False
-    assert is_lossless_codec("aif") is False
-    assert is_lossless_codec("mp3") is False
-    assert is_lossless_codec("aac") is False
-    assert is_lossless_codec("opus") is False
-    assert is_lossless_codec("adpcm_ms") is False
-    assert is_lossless_codec("not-lossless") is False
-    assert is_lossless_codec("") is False
-    assert is_lossless_codec(None) is False
+from yaatv.models import YaatvError
+from yaatv.planning import quality_warnings
 
 
 def test_read_audio_metadata_confirmed_pcm_wav_suppresses_low_bitrate_warning(
@@ -173,7 +33,6 @@ def test_read_audio_metadata_confirmed_pcm_wav_suppresses_low_bitrate_warning(
     warnings = quality_warnings(metadata, image_size=None, target_size=(1920, 1080))
     assert warnings == []
 
-
 def test_read_audio_metadata_wav_fallback_without_pcm_warns_on_low_bitrate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -191,7 +50,6 @@ def test_read_audio_metadata_wav_fallback_without_pcm_warns_on_low_bitrate(
     warnings = quality_warnings(metadata, image_size=None, target_size=(1920, 1080))
     assert warnings == ["source audio bitrate is 64kbps, below the 256kbps warning threshold"]
 
-
 def test_read_audio_metadata_flac_suppresses_low_bitrate_warning(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -208,7 +66,6 @@ def test_read_audio_metadata_flac_suppresses_low_bitrate_warning(
     assert metadata.codec == "flac"
     assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == []
 
-
 def test_read_audio_metadata_alac_suppresses_low_bitrate_warning(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -224,7 +81,6 @@ def test_read_audio_metadata_alac_suppresses_low_bitrate_warning(
     metadata = read_audio_metadata(audio_path)
     assert metadata.codec == "alac"
     assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == []
-
 
 @pytest.mark.parametrize(
     ("class_name", "suffix", "expected_codec"),
@@ -257,7 +113,6 @@ def test_read_audio_metadata_class_fallbacks_suppress_low_bitrate_warning(
     assert metadata.codec == expected_codec
     assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == []
 
-
 def test_read_audio_metadata_mp3_preserves_low_bitrate_warning(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -275,7 +130,6 @@ def test_read_audio_metadata_mp3_preserves_low_bitrate_warning(
     assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == [
         "source audio bitrate is 192kbps, below the 256kbps warning threshold"
     ]
-
 
 def test_read_audio_metadata_aac_preserves_low_bitrate_warning(
     monkeypatch: pytest.MonkeyPatch,
@@ -299,7 +153,6 @@ def test_read_audio_metadata_aac_preserves_low_bitrate_warning(
         "source audio bitrate is 192kbps, below the 256kbps warning threshold"
     ]
 
-
 def test_read_audio_metadata_unknown_codec_preserves_low_bitrate_warning(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -318,33 +171,6 @@ def test_read_audio_metadata_unknown_codec_preserves_low_bitrate_warning(
         "source audio bitrate is 192kbps, below the 256kbps warning threshold"
     ]
 
-
-
-
-@pytest.mark.parametrize(
-    ("image_size", "recommended_size"),
-    [
-        ((640, 640), "1080x1080"),
-        ((400, 600), "720x1080"),
-        ((960, 540), "1920x1080"),
-    ],
-)
-def test_small_cover_warning_recommends_fitted_size(
-    image_size: tuple[int, int], recommended_size: str
-) -> None:
-    warnings = quality_warnings(
-        AudioMetadata(codec="mp3", bitrate=320_000, sample_rate=48_000, artist=None, title=None),
-        image_size=image_size,
-        target_size=(1920, 1080),
-    )
-
-    assert warnings == [
-        f"cover image is {image_size[0]}x{image_size[1]}; FFmpeg will upscale it for 1920x1080. "
-        f"Consider using an image at least {recommended_size}"
-    ]
-
-
-
 def test_unusual_input_extensions_warn_before_encoding() -> None:
     assert input_format_warnings(Path("track.audio"), Path("cover.picture")) == [
         "audio file extension is unusual: .audio",
@@ -356,27 +182,6 @@ def test_unusual_input_extensions_warn_before_encoding() -> None:
     ]
 
     assert input_format_warnings(Path("track.flac"), Path("cover.png")) == []
-
-
-
-def test_default_output_prefers_artist_and_title() -> None:
-    metadata = AudioMetadata(
-        codec="flac",
-        bitrate=900_000,
-        sample_rate=44_100,
-        artist='AC/DC: "Live"',
-        title="Track / One",
-    )
-
-    assert default_output_path(Path("input.flac"), metadata) == Path('AC_DC_ _Live_ - Track _ One.mp4')
-
-
-
-def test_default_output_falls_back_to_audio_stem() -> None:
-    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
-
-    assert default_output_path(Path("input.flac"), metadata) == Path("input.mp4")
-
 
 def test_read_audio_metadata_supports_aART_artist_alias(
     monkeypatch: pytest.MonkeyPatch,
@@ -396,7 +201,6 @@ def test_read_audio_metadata_supports_aART_artist_alias(
     assert metadata.artist == "Album Artist"
     assert metadata.title == "Test Song"
 
-
 def test_read_audio_metadata_supports_author_artist_alias(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -414,7 +218,6 @@ def test_read_audio_metadata_supports_author_artist_alias(
 
     assert metadata.artist == "WMA Artist"
     assert metadata.title == "Test Song"
-
 
 def test_read_audio_metadata_preserves_artist_alias_precedence(
     monkeypatch: pytest.MonkeyPatch,
@@ -436,7 +239,6 @@ def test_read_audio_metadata_preserves_artist_alias_precedence(
     metadata = read_audio_metadata(audio_path)
 
     assert metadata.artist == "Primary Artist"
-
 
 def test_read_audio_metadata_extracts_all_extended_tags_id3(
     monkeypatch: pytest.MonkeyPatch,
@@ -471,7 +273,6 @@ def test_read_audio_metadata_extracts_all_extended_tags_id3(
     assert metadata.track == "4/12"
     assert metadata.disc == "1/2"
 
-
 def test_read_audio_metadata_extracts_all_extended_tags_vorbis(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -504,7 +305,6 @@ def test_read_audio_metadata_extracts_all_extended_tags_vorbis(
     assert metadata.date == "2021"
     assert metadata.track == "7"
     assert metadata.disc == "1"
-
 
 def test_read_audio_metadata_extracts_all_extended_tags_mp4(
     monkeypatch: pytest.MonkeyPatch,
@@ -539,7 +339,6 @@ def test_read_audio_metadata_extracts_all_extended_tags_mp4(
     assert metadata.track == "3/10"
     assert metadata.disc == "1/2"
 
-
 def test_read_audio_metadata_handles_mp4_tuples_without_totals(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -560,7 +359,6 @@ def test_read_audio_metadata_handles_mp4_tuples_without_totals(
 
     assert metadata.track == "5"
     assert metadata.disc == "2"
-
 
 def test_read_audio_metadata_handles_asf_wma_tags(
     monkeypatch: pytest.MonkeyPatch,
@@ -595,7 +393,6 @@ def test_read_audio_metadata_handles_asf_wma_tags(
     assert metadata.track == "1"
     assert metadata.disc == "1"
 
-
 def test_read_audio_metadata_omits_missing_and_empty_tags(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -624,141 +421,12 @@ def test_read_audio_metadata_omits_missing_and_empty_tags(
     assert metadata.track is None
     assert metadata.disc is None
 
-
-def test_output_dir_places_default_name_in_existing_directory(tmp_path: Path) -> None:
-    output_dir = tmp_path / "uploads"
-    output_dir.mkdir()
-    metadata = AudioMetadata(
-        codec="flac",
-        bitrate=900_000,
-        sample_rate=44_100,
-        artist="Artist",
-        title="Title",
-    )
-
-    assert resolve_output_path(Path("input.flac"), metadata, None, output_dir) == output_dir / "Artist - Title.mp4"
-
-
-
-def test_output_dir_rejects_missing_directory(tmp_path: Path) -> None:
-    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
-
-    with pytest.raises(YaatvError, match="Output directory does not exist"):
-        resolve_output_path(Path("input.flac"), metadata, None, tmp_path / "missing")
-
-
-
-def test_output_dir_rejects_file_path(tmp_path: Path) -> None:
-    output_dir = tmp_path / "not-a-directory"
-    output_dir.write_text("file", encoding="utf-8")
-    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
-
-    with pytest.raises(YaatvError, match="Output directory is not a directory"):
-        resolve_output_path(Path("input.flac"), metadata, None, output_dir)
-
-
-
-def test_output_dir_cannot_be_combined_with_output(tmp_path: Path) -> None:
-    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
-
-    with pytest.raises(YaatvError, match="Do not use --output-dir together with -o/--output"):
-        resolve_output_path(Path("input.flac"), metadata, Path("out.mp4"), tmp_path)
-
-
-
-def test_pad_seconds_validates_range() -> None:
-    assert pad_seconds("0") == 0
-    assert pad_seconds("10") == 10
-
-    with pytest.raises(Exception, match="between 0 and 10"):
-        pad_seconds("11")
-
-
-
-@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "+inf", "NaN", "Infinity"])
-def test_pad_seconds_rejects_non_finite_values(value: str) -> None:
-    with pytest.raises(Exception, match="between 0 and 10"):
-        pad_seconds(value)
-
-
-
-def test_sanitize_filename_has_fallback() -> None:
-    assert sanitize_filename(' <>:"/\\|?* ') == "_________"
-
-
-
-def test_sanitize_filename_prefixes_windows_reserved_device_names() -> None:
-    assert sanitize_filename("CON") == "_CON"
-    assert sanitize_filename("con") == "_con"
-    assert sanitize_filename("NUL.txt") == "_NUL.txt"
-    assert sanitize_filename("COM1") == "_COM1"
-    assert sanitize_filename("LPT9") == "_LPT9"
-
-
-
-def test_default_output_avoids_windows_reserved_audio_stem() -> None:
-    metadata = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
-
-    assert default_output_path(Path("COM1.flac"), metadata) == Path("_COM1.mp4")
-
-
-
-def test_sanitize_filename_truncates_to_max_length() -> None:
-    long_name = "a" * 300
-    sanitized = sanitize_filename(long_name)
-    assert len(sanitized) == MAX_FILENAME_LENGTH
-    assert sanitized == "a" * MAX_FILENAME_LENGTH
-
-
-
-def test_sanitize_filename_custom_max_length() -> None:
-    assert sanitize_filename("hello world", max_length=5) == "hello"
-
-
-
-def test_sanitize_filename_rstrips_dots_and_spaces_after_truncation() -> None:
-    assert sanitize_filename("artist - title ... extra", max_length=16) == "artist - title"
-
-
-
-def test_sanitize_filename_truncates_utf8_byte_bound() -> None:
-    # 100 3-byte Japanese characters = 300 bytes
-    japanese_name = "あ" * 100
-    sanitized = sanitize_filename(japanese_name)
-    assert len(sanitized.encode("utf-8")) <= MAX_FILENAME_LENGTH
-    # 200 // 3 = 66 characters (198 bytes)
-    assert sanitized == "あ" * 66
-
-
-
-def test_sanitize_filename_fallback_when_truncated_to_empty() -> None:
-    assert sanitize_filename(" . " * 100, max_length=10) == "output"
-
-
-
-def test_default_output_path_caps_very_long_metadata() -> None:
-    metadata = AudioMetadata(
-        codec="flac",
-        bitrate=900_000,
-        sample_rate=44_100,
-        artist="A" * 200,
-        title="T" * 200,
-    )
-    output = default_output_path(Path("track.flac"), metadata)
-    assert len(output.stem) == MAX_FILENAME_LENGTH
-    assert len(output.name) == MAX_FILENAME_LENGTH + len(".mp4")
-    assert output.suffix == ".mp4"
-
-
-
 def test_unreadable_audio_reports_user_facing_error(tmp_path: Path) -> None:
     audio_path = tmp_path / "not-audio.mp3"
     audio_path.write_text("not audio", encoding="utf-8")
 
     with pytest.raises(YaatvError, match="Could not read audio metadata"):
         read_audio_metadata(audio_path)
-
-
 
 def test_extract_embedded_cover_uses_apic_tag(
     monkeypatch: pytest.MonkeyPatch,
@@ -782,8 +450,6 @@ def test_extract_embedded_cover_uses_apic_tag(
     assert cover_path.parent == output_dir
     assert validate_image(cover_path) == (16, 16)
 
-
-
 def test_extract_embedded_cover_skips_invalid_candidate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -801,8 +467,6 @@ def test_extract_embedded_cover_skips_invalid_candidate(
     assert cover_path == output_dir / "embedded-cover-2.jpg"
     assert validate_image(cover_path) == (16, 16)
     assert not (output_dir / "embedded-cover-1.jpg").exists()
-
-
 
 def test_extract_embedded_cover_prefers_front_cover_candidate(
     monkeypatch: pytest.MonkeyPatch,
@@ -830,8 +494,6 @@ def test_extract_embedded_cover_prefers_front_cover_candidate(
     assert validate_image(cover_path) == (16, 16)
     assert not (output_dir / "embedded-cover-2.png").exists()
 
-
-
 def test_extract_embedded_cover_prefers_front_cover_by_string_type(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -858,8 +520,6 @@ def test_extract_embedded_cover_prefers_front_cover_by_string_type(
     assert validate_image(cover_path) == (16, 16)
     assert not (output_dir / "embedded-cover-2.png").exists()
 
-
-
 def test_extract_embedded_cover_rejects_all_invalid_candidates(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -876,8 +536,6 @@ def test_extract_embedded_cover_rejects_all_invalid_candidates(
 
     assert not (output_dir / "embedded-cover-1.jpg").exists()
 
-
-
 def test_animated_image_is_rejected(tmp_path: Path) -> None:
     image_path = tmp_path / "cover.gif"
     frames = [
@@ -888,8 +546,6 @@ def test_animated_image_is_rejected(tmp_path: Path) -> None:
 
     with pytest.raises(YaatvError, match="static image"):
         validate_image(image_path)
-
-
 
 def test_validate_image_rejects_decompression_bomb(
     monkeypatch: pytest.MonkeyPatch,
@@ -905,31 +561,44 @@ def test_validate_image_rejects_decompression_bomb(
     with pytest.raises(YaatvError, match="exceeds Pillow's safe image-size limit"):
         validate_image(image_path, "Background image")
 
+def test_classify_files_detects_audio_and_image_in_any_order() -> None:
+    assert classify_files([Path("track.flac"), Path("cover.jpg")]) == (Path("track.flac"), Path("cover.jpg"))
+    assert classify_files([Path("cover.PNG"), Path("track.MP3")]) == (Path("track.MP3"), Path("cover.PNG"))
 
+def test_classify_files_rejects_wrong_count() -> None:
+    with pytest.raises(YaatvError, match="exactly 2 files .* but 1 were provided"):
+        classify_files([Path("track.flac")])
 
-def test_normalize_output_path_rejects_missing_directory(tmp_path: Path) -> None:
-    with pytest.raises(YaatvError, match="Output directory does not exist"):
-        normalize_output_path(tmp_path / "missing" / "out.mp4")
+    with pytest.raises(YaatvError, match="exactly 2 files .* but 3 were provided"):
+        classify_files([Path("track.flac"), Path("cover.jpg"), Path("logo.png")])
 
+def test_classify_files_rejects_same_type_inputs() -> None:
+    with pytest.raises(YaatvError, match="Two audio files provided"):
+        classify_files([Path("track.flac"), Path("song.mp3")])
 
+    with pytest.raises(YaatvError, match="Two image files provided"):
+        classify_files([Path("cover.jpg"), Path("art.png")])
 
-@pytest.mark.parametrize("filename", ["out.avi", "out.mkv", "out"])
-def test_normalize_output_path_rejects_unsupported_extension(filename: str) -> None:
-    with pytest.raises(YaatvError, match=r"supported extensions: \.mov, \.mp4"):
-        normalize_output_path(Path(filename))
+def test_classify_files_rejects_unrecognized_extensions() -> None:
+    with pytest.raises(YaatvError, match="Could not classify file.stuff as audio or image"):
+        classify_files([Path("track.flac"), Path("file.stuff")])
 
+def test_classify_files_probes_valid_media_with_unusual_extensions(tmp_path: Path) -> None:
+    audio_path = tmp_path / "track.audio"
+    with wave.open(str(audio_path), "wb") as audio:
+        audio.setnchannels(1)
+        audio.setsampwidth(2)
+        audio.setframerate(8_000)
+        audio.writeframes(b"\x00\x00" * 80)
 
+    image_path = tmp_path / "cover.picture"
+    Image.new("RGB", (8, 8), "blue").save(image_path, format="PNG")
 
-@pytest.mark.parametrize("filename", ["out.mp4", "out.MP4", "out.mov", "out.MOV"])
-def test_normalize_output_path_accepts_supported_extension(filename: str) -> None:
-    assert normalize_output_path(Path(filename)) == Path(filename)
+    assert classify_files([image_path, audio_path]) == (audio_path, image_path)
 
+def test_classify_files_rejects_invalid_unusual_media(tmp_path: Path) -> None:
+    invalid_path = tmp_path / "not-media.data"
+    invalid_path.write_text("not audio or an image", encoding="utf-8")
 
-
-def test_normalize_output_path_rejects_file_parent(tmp_path: Path) -> None:
-    parent = tmp_path / "not-a-directory"
-    parent.write_text("not a directory", encoding="utf-8")
-
-    with pytest.raises(YaatvError, match="Output directory is not a directory"):
-        normalize_output_path(parent / "out.mp4")
-
+    with pytest.raises(YaatvError, match="Could not classify .*not-media.data as audio or image"):
+        classify_files([Path("track.flac"), invalid_path])

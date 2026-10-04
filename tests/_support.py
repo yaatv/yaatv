@@ -8,7 +8,8 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from yaatv.cli import AudioMetadata, AudioPlan, ToolHealth, choose_audio_plan
+from yaatv.models import AudioMetadata, AudioPlan, ToolHealth
+from yaatv.planning import choose_audio_plan
 
 
 def _executable_name(name: str) -> str:

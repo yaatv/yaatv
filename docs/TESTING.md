@@ -16,11 +16,16 @@ yaatv divides tests into focused test modules and two execution suites:
 Unit tests are organized into focused modules by domain:
 
 - **`tests/test_project.py`**: Packaging and repository-level contracts (`pyproject.toml`, Python version requirements, dynamic package versioning, README format consistency, CI/release workflow assertions).
-- **`tests/test_cli.py`**: Public CLI surface (argument parsing, help text, option validation, mutual exclusion, drag-and-drop file classification, and Windows Explorer pause detection).
-- **`tests/test_media.py`**: Media domain logic (audio metadata parsing, embedded artwork extraction, image validation, audio planning, AAC copy decisions, quality warnings, filename sanitization, and output path normalization).
-- **`tests/test_ffmpeg.py`**: FFmpeg execution and command layer (`build_ffmpeg_command()`, filtergraph construction, H.264/ProRes encoding profiles, subprocess progress streaming, error tails, output probing, and stream verification).
-- **`tests/test_system.py`**: Environment and tool discovery (`find_ffmpeg()`, `find_ffprobe()`, tool health checks, app-managed tool paths, `--scry` diagnostics, and platform detection).
-- **`tests/test_installer.py`**: Managed FFmpeg installation (archive downloads, HTTPS enforcement, retries, checksums, archive extraction, platform fallback sources, transactional staging, rollback, and installer dispatch).
+- **`tests/test_cli.py`**: Public CLI surface (argument parsing, help text, option validation, mutual exclusion, and Windows Explorer pause detection).
+- **`tests/test_planning.py`**: Audio planning, AAC copy decisions, quality warnings, lossless codec handling, and output geometry.
+- **`tests/test_media.py`**: Audio metadata parsing, embedded artwork extraction, input classification, and image validation.
+- **`tests/test_output.py`**: Filename sanitization, output path normalization, output naming, file details, and file size formatting.
+- **`tests/test_ffmpeg_command.py`**: FFmpeg command construction, filtergraph branches, H.264/ProRes profiles, and output metadata.
+- **`tests/test_ffmpeg_runner.py`**: FFmpeg execution, subprocess progress streaming, bounded error tails, output probing, and stream verification.
+- **`tests/test_ffmpeg_tools.py`**: Binary discovery, tool health checks, app-managed tool paths, and platform detection.
+- **`tests/test_diagnostics.py`**: `--scry` diagnostics and tool reports.
+- **`tests/test_ffmpeg_install.py`**: Managed FFmpeg installation (archive downloads, HTTPS enforcement, retries, checksums, archive extraction, platform fallback sources, transactional staging, rollback, and platform-specific installer dispatch).
+- **`tests/test_system.py`**: CLI tool resolution and `--scry` dispatch behavior.
 - **`tests/test_workflow.py`**: End-to-end `run()` workflow orchestration (dry runs, quick mode, overwrite prompts and semantics, transactional cleanup on failure, and error handling).
 - **`tests/_support.py` & `tests/conftest.py`**: Shared test helpers, archive generators, and pytest configuration.
 
@@ -55,14 +60,29 @@ python -m pytest tests/test_cli.py
 # Run media domain tests
 python -m pytest tests/test_media.py
 
-# Run FFmpeg command and filtergraph tests
-python -m pytest tests/test_ffmpeg.py
+# Run planning and geometry tests
+python -m pytest tests/test_planning.py
 
-# Run system discovery and diagnostic tests
+# Run output naming and path tests
+python -m pytest tests/test_output.py
+
+# Run FFmpeg command and filtergraph tests
+python -m pytest tests/test_ffmpeg_command.py
+
+# Run FFmpeg runner, probing, and verification tests
+python -m pytest tests/test_ffmpeg_runner.py
+
+# Run FFmpeg tool discovery and health tests
+python -m pytest tests/test_ffmpeg_tools.py
+
+# Run `--scry` diagnostics tests
+python -m pytest tests/test_diagnostics.py
+
+# Run CLI tool resolution tests
 python -m pytest tests/test_system.py
 
 # Run managed installer tests
-python -m pytest tests/test_installer.py
+python -m pytest tests/test_ffmpeg_install.py
 
 # Run top-level workflow orchestration tests
 python -m pytest tests/test_workflow.py
@@ -80,7 +100,7 @@ Filter by function name or keyword across all modules:
 python -m pytest -k test_pad_option
 
 # Run all aspect ratio tests
-python -m pytest tests/test_ffmpeg.py -k aspect
+python -m pytest tests/test_ffmpeg_command.py -k aspect
 ```
 
 ### Run all tests including integration
