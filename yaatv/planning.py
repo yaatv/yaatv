@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from .models import AudioMetadata, AudioPlan, YaatvError
+from .models import AudioMetadata, AudioPlan
 from .output import format_seconds
 
 DEFAULT_ASPECT = "16:9"
@@ -60,12 +60,7 @@ def output_size(resolution: str, aspect: str) -> tuple[int, int]:
 
 
 def choose_audio_plan(metadata: AudioMetadata, pad: float) -> AudioPlan:
-    if is_high_quality_aac(metadata):
-        if pad > 0:
-            raise YaatvError(
-                "--pad cannot be used with high-quality AAC copy mode because adding silence "
-                "requires audio filtering. Rerun without --pad or use a source that will be transcoded."
-            )
+    if is_high_quality_aac(metadata) and pad == 0:
         return AudioPlan(copy=True, codec_args=("-c:a", "copy"))
 
     filter_args: tuple[str, ...] = ()
