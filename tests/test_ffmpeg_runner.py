@@ -166,6 +166,37 @@ def test_probe_output_reports_missing_ffprobe(monkeypatch: pytest.MonkeyPatch) -
     with pytest.raises(YaatvError, match="FFprobe was not found"):
         probe_output("ffprobe", Path("out.mp4"))
 
+def test_probe_output_uses_verification_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, stdout='{"streams": [], "format": {}}', stderr="")
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    stats = probe_output("ffprobe", Path("out.mp4"))
+    assert stats.width is None
+    assert stats.duration is None
+    assert captured["timeout"] == 30
+    assert captured["capture_output"] is True
+    assert captured["check"] is False
+
+def test_probe_output_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    timeout = subprocess.TimeoutExpired(["ffprobe"], 30, output=b"partial JSON", stderr=b"diagnostic")
+
+    def fake_run(_command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise timeout
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(
+        YaatvError, match=r"FFprobe timed out after 30 seconds while verifying output: out\.mp4"
+    ) as exc_info:
+        probe_output("ffprobe", Path("out.mp4"))
+
+    assert exc_info.value.__cause__ is timeout
+
 def test_probe_output_reports_ffprobe_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 1, stdout="", stderr="bad output")
