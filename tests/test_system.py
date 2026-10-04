@@ -146,11 +146,11 @@ def test_run_scry_succeeds_with_app_managed_tools(
     stderr = StringIO()
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
-    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("yaatv.diagnostics.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.diagnostics.supports_app_managed_ffmpeg_install", lambda: True)
     monkeypatch.setattr("shutil.which", lambda name: str(app_bin / _executable_name(name)))
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health", lambda path: ToolHealth(path=path, state="ok", version="7.1.4")
+        "yaatv.diagnostics.check_tool_health", lambda path: ToolHealth(path=path, state="ok", version="7.1.4")
     )
 
     assert run_scry(stderr=stderr) == 0
@@ -169,8 +169,8 @@ def test_run_scry_fails_when_required_tools_are_missing(
     stderr = StringIO()
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: tmp_path / "missing")
-    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("yaatv.diagnostics.app_managed_ffmpeg_bin_dir", lambda: tmp_path / "missing")
+    monkeypatch.setattr("yaatv.diagnostics.supports_app_managed_ffmpeg_install", lambda: True)
     monkeypatch.setattr("shutil.which", lambda _name: None)
 
     assert run_scry(stderr=stderr) == 1
@@ -261,11 +261,11 @@ def test_run_scry_fails_when_app_tool_cannot_execute(
     stderr = StringIO()
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
-    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("yaatv.diagnostics.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.diagnostics.supports_app_managed_ffmpeg_install", lambda: True)
     monkeypatch.setattr("shutil.which", lambda _name: None)
     monkeypatch.setattr(
-        "yaatv.cli.check_tool_health",
+        "yaatv.diagnostics.check_tool_health",
         lambda path: ToolHealth(path=path, state="blocked", detail="Access is denied"),
     )
 
@@ -290,8 +290,8 @@ def test_run_scry_accepts_healthy_path_tool_when_app_tool_cannot_execute(
     stderr = StringIO()
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("yaatv.cli.app_managed_ffmpeg_bin_dir", lambda: app_bin)
-    monkeypatch.setattr("yaatv.cli.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("yaatv.diagnostics.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.diagnostics.supports_app_managed_ffmpeg_install", lambda: True)
     monkeypatch.setattr("shutil.which", lambda name: str(other_bin / _executable_name(name)))
 
     def fake_check_tool_health(path: str | None) -> ToolHealth:
@@ -299,7 +299,7 @@ def test_run_scry_accepts_healthy_path_tool_when_app_tool_cannot_execute(
             return ToolHealth(path=path, state="blocked", detail="Access is denied")
         return ToolHealth(path=path, state="ok", version="7.1")
 
-    monkeypatch.setattr("yaatv.cli.check_tool_health", fake_check_tool_health)
+    monkeypatch.setattr("yaatv.diagnostics.check_tool_health", fake_check_tool_health)
 
     assert run_scry(stderr=stderr) == 0
     output = stderr.getvalue()
