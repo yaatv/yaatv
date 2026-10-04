@@ -126,9 +126,9 @@ def _mock_quick_encode_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> t
     audio_path.write_bytes(b"audio")
     image_path.write_bytes(b"image")
 
-    monkeypatch.setattr("yaatv.cli.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="flac",
             bitrate=900_000,
@@ -138,6 +138,6 @@ def _mock_quick_encode_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> t
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
     return audio_path, image_path, output_path
 

@@ -4,12 +4,13 @@ from pathlib import Path
 import pytest
 
 from tests._support import _executable_name, _TtyInput
-from yaatv.cli import resolve_ffmpeg_tools, run
+from yaatv.cli import run
 from yaatv.models import ToolHealth, YaatvError
+from yaatv.workflow import resolve_ffmpeg_tools
 
 
 def test_run_scry_does_not_require_audio_or_image(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("yaatv.cli.run_scry", lambda **_kwargs: 0)
+    monkeypatch.setattr("yaatv.workflow.run_scry", lambda **_kwargs: 0)
 
     assert run(["--scry"], stdin=StringIO(), stderr=StringIO()) == 0
 

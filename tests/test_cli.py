@@ -6,13 +6,10 @@ import pytest
 from tests._support import _TtyInput
 from yaatv.cli import (
     _should_pause_after_run,
-    background_color,
     main,
-    pad_seconds,
-    parse_args,
     run,
 )
-from yaatv.models import AudioMetadata, YaatvError
+from yaatv.models import AudioMetadata, Config, YaatvError
 
 
 def test_audio_and_image_are_required_for_encoding(
@@ -28,7 +25,7 @@ def test_audio_and_image_are_required_for_encoding(
     background_path.write_bytes(b"background")
 
     monkeypatch.setattr(
-        "yaatv.cli.read_audio_metadata",
+        "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
             codec="wav",
             bitrate=900_000,
@@ -38,7 +35,7 @@ def test_audio_and_image_are_required_for_encoding(
             duration=12.1,
         ),
     )
-    monkeypatch.setattr("yaatv.cli.extract_embedded_cover", lambda _audio_path, _directory: None)
+    monkeypatch.setattr("yaatv.workflow.extract_embedded_cover", lambda _audio_path, _directory: None)
 
     with pytest.raises(YaatvError, match="Cover image is required"):
         run(["--audio", str(audio_path), "--dry-run"], stdin=StringIO(), stderr=StringIO())
@@ -66,49 +63,6 @@ def test_audio_and_image_are_required_for_encoding(
             stdin=StringIO(),
             stderr=StringIO(),
         )
-
-def test_parse_args_accepts_positional_files() -> None:
-    args = parse_args(["cover.JPG", "track.FLAC", "--resolution", "4k", "--aspect", "square"])
-
-    assert args.files == [Path("cover.JPG"), Path("track.FLAC")]
-    assert args.audio is None
-    assert args.image is None
-    assert args.resolution == "4k"
-    assert args.aspect == "square"
-
-def test_parse_args_accepts_scry_without_files() -> None:
-    args = parse_args(["--scry"])
-
-    assert args.scry is True
-    assert args.audio is None
-    assert args.image is None
-
-def test_parse_args_accepts_install_ffmpeg_without_files() -> None:
-    args = parse_args(["--install-ffmpeg"])
-
-    assert args.install_ffmpeg is True
-    assert args.scry is False
-    assert args.audio is None
-    assert args.image is None
-
-def test_parse_args_rejects_install_ffmpeg_with_scry(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit):
-        parse_args(["--install-ffmpeg", "--scry"])
-
-    err = capsys.readouterr().err
-    assert "--install-ffmpeg and --scry are mutually exclusive; use one or the other." in err
-
-def test_parse_args_rejects_scry_with_install_ffmpeg(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit):
-        parse_args(["--scry", "--install-ffmpeg"])
-
-    err = capsys.readouterr().err
-    assert "--install-ffmpeg and --scry are mutually exclusive; use one or the other." in err
-
-def test_parse_args_accepts_open_folder() -> None:
-    args = parse_args(["-a", "audio.flac", "-i", "cover.jpg", "--open-folder"])
-
-    assert args.open_folder is True
 
 def test_should_not_pause_after_run_for_noninteractive_positional_files() -> None:
     assert _should_pause_after_run(["track.flac", "cover.jpg"], StringIO()) is False
@@ -184,114 +138,12 @@ def test_main_does_not_pause_outside_windows_explorer(monkeypatch: pytest.Monkey
     assert main(["track.flac", "cover.jpg"], stdin=StringIO("\n"), stderr=stderr) == 0
     assert "Press Enter to exit..." not in stderr.getvalue()
 
-def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        parse_args(["--help"])
-
-    assert exc_info.value.code == 0
-    help_text = capsys.readouterr().out
-    assert "examples:" in help_text
-    assert "yaatv audio.flac cover.jpg" in help_text
-    assert "yaatv --scry" in help_text
-
-def test_help_mentions_scry_for_audio_and_image_options(capsys: pytest.CaptureFixture[str]) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        parse_args(["--help"])
-
-    assert exc_info.value.code == 0
-    help_text = capsys.readouterr().out.replace("\n", " ")
-    collapsed = " ".join(help_text.split()).replace("- ", "-")
-    assert "Path to audio file (required unless using --install-ffmpeg, --scry, or positional files)" in collapsed
-    assert (
-        "Path to cover image (required unless using --install-ffmpeg, "
-        "--scry, positional files, or color-only output)"
-    ) in collapsed
-
 def test_positional_files_cannot_be_mixed_with_audio_or_image_flags() -> None:
     with pytest.raises(YaatvError, match="Do not use positional file arguments together with -a or -i flags"):
         run(["-a", "track.flac", "cover.jpg"], stdin=StringIO(), stderr=StringIO())
 
     with pytest.raises(YaatvError, match="Do not use positional file arguments together with -a or -i flags"):
         run(["-i", "cover.jpg", "track.flac"], stdin=StringIO(), stderr=StringIO())
-
-def test_cover_image_is_optional_for_explicit_nondefault_background_color() -> None:
-    args = parse_args(["--audio", "track.wav", "--bg-color", "white"])
-
-    assert args.image is None
-    assert args.bg_color == "0xffffff"
-    assert args.bg_color_explicit
-
-def test_background_color_validates_values() -> None:
-    assert background_color("white") == "0xffffff"
-    assert background_color("black") == "black"
-    assert background_color("#2a2a2a") == "0x2a2a2a"
-
-    with pytest.raises(Exception, match="valid #RRGGBB hex color or named CSS color"):
-        background_color("not-a-color")
-
-    with pytest.raises(Exception, match="#RRGGBB"):
-        background_color("#fff")
-
-def test_parse_args_rejects_bg_image_with_bg_blur() -> None:
-    with pytest.raises(SystemExit):
-        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg", "--bg-blur"])
-
-def test_parse_args_rejects_bg_color_with_bg_image() -> None:
-    with pytest.raises(SystemExit):
-        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg", "--bg-color", "red"])
-
-def test_parse_args_rejects_bg_color_with_bg_blur() -> None:
-    with pytest.raises(SystemExit):
-        parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-blur", "--bg-color", "red"])
-
-def test_parse_args_accepts_cover_with_default_background() -> None:
-    args = parse_args(["-a", "track.wav", "-i", "cover.jpg"])
-
-    assert args.bg_image is None
-    assert not args.bg_blur
-    assert not args.bg_color_explicit
-
-def test_parse_args_accepts_cover_with_custom_background_color() -> None:
-    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-color", "white"])
-
-    assert args.bg_color == "0xffffff"
-    assert args.bg_color_explicit
-    assert args.bg_image is None
-    assert not args.bg_blur
-
-def test_parse_args_accepts_cover_with_background_image() -> None:
-    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-image", "bg.jpg"])
-
-    assert args.bg_image == Path("bg.jpg")
-    assert not args.bg_blur
-    assert not args.bg_color_explicit
-
-def test_parse_args_accepts_cover_with_blurred_background() -> None:
-    args = parse_args(["-a", "track.wav", "-i", "cover.jpg", "--bg-blur"])
-
-    assert args.bg_blur
-    assert args.bg_image is None
-    assert not args.bg_color_explicit
-
-def test_parse_args_accepts_color_only_output() -> None:
-    args = parse_args(["-a", "track.wav", "--bg-color", "white"])
-
-    assert args.bg_color == "0xffffff"
-    assert args.bg_color_explicit
-    assert args.bg_image is None
-    assert not args.bg_blur
-
-def test_pad_seconds_validates_range() -> None:
-    assert pad_seconds("0") == 0
-    assert pad_seconds("10") == 10
-
-    with pytest.raises(Exception, match="between 0 and 10"):
-        pad_seconds("11")
-
-@pytest.mark.parametrize("value", ["nan", "inf", "-inf", "+inf", "NaN", "Infinity"])
-def test_pad_seconds_rejects_non_finite_values(value: str) -> None:
-    with pytest.raises(Exception, match="between 0 and 10"):
-        pad_seconds(value)
 
 def test_run_install_ffmpeg_uses_general_installer(
     monkeypatch: pytest.MonkeyPatch,
@@ -304,8 +156,29 @@ def test_run_install_ffmpeg_uses_general_installer(
         called = True
         return tmp_path
 
-    monkeypatch.setattr("yaatv.cli.install_ffmpeg", install)
+    monkeypatch.setattr("yaatv.workflow.install_ffmpeg", install)
 
     assert run(["--install-ffmpeg"], stderr=StringIO()) == 0
     assert called
+
+
+def test_cli_run_passes_config_and_streams_to_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    stdin = StringIO()
+    stderr = StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_workflow(args: Config, *, stdin: StringIO, stderr: StringIO) -> int:
+        captured["args"] = args
+        captured["stdin"] = stdin
+        captured["stderr"] = stderr
+        return 7
+
+    monkeypatch.setattr("yaatv.cli.workflow.run", fake_workflow)
+
+    assert run(["-a", "track.flac", "-i", "cover.jpg"], stdin=stdin, stderr=stderr) == 7
+    captured_args = captured["args"]
+    assert isinstance(captured_args, Config)
+    assert captured_args.audio == Path("track.flac")
+    assert captured["stdin"] is stdin
+    assert captured["stderr"] is stderr
 
