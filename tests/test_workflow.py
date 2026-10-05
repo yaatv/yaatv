@@ -914,3 +914,169 @@ def test_workflow_dispatches_standalone_install_before_encode_requirements(monke
 
     assert workflow_run(args, stderr=stderr) == 0
     assert captured["stderr"] is stderr
+
+
+def _mock_verified_encode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[Path, Path, Path]:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        Path(command[-1]).write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_output",
+        lambda _ffprobe, _output_path: OutputStats(
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_sample_rate=48_000,
+        ),
+    )
+    return audio_path, image_path, output_path
+
+
+def test_successful_encode_prints_cached_update_notice_after_verification(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_verified_encode(monkeypatch, tmp_path)
+    stderr = StringIO()
+    events: list[str] = []
+
+    monkeypatch.setattr("yaatv.workflow.maybe_refresh_update_cache", lambda: events.append("refresh"))
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: events.append("notice") or "Update available: yaatv 0.7.1\nYou are running 0.7.0",
+    )
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        events.append("encode")
+        Path(command[-1]).write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    assert events == ["refresh", "encode", "notice"]
+    assert "Update available: yaatv 0.7.1\nYou are running 0.7.0" in stderr.getvalue()
+
+
+def test_successful_encode_without_cached_update_prints_no_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_verified_encode(monkeypatch, tmp_path)
+    stderr = StringIO()
+    monkeypatch.setattr("yaatv.workflow.cached_update_notice", lambda: None)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    assert "Update available:" not in stderr.getvalue()
+
+
+def test_failed_encode_does_not_read_or_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("failed encode must not read the notice")),
+    )
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert "Update available:" not in stderr.getvalue()
+
+
+def test_failed_verification_does_not_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_verified_encode(monkeypatch, tmp_path)
+    stderr = StringIO()
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_output",
+        lambda *_args: (_ for _ in ()).throw(YaatvError("verification failed")),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("failed verification must not read the notice")),
+    )
+
+    with pytest.raises(YaatvError, match="verification failed"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path)],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert "Update available:" not in stderr.getvalue()
+
+
+def test_dry_run_does_not_refresh_or_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        "yaatv.workflow.maybe_refresh_update_cache",
+        lambda: (_ for _ in ()).throw(AssertionError("dry run must not refresh updates")),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("dry run must not read the notice")),
+    )
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=StringIO(),
+    ) == 0
+
+
+@pytest.mark.parametrize("mode", ["--install", "--install-ffmpeg", "--scry"])
+def test_system_modes_do_not_refresh_or_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    monkeypatch.setattr("yaatv.workflow.install_yaatv", lambda **_kwargs: None)
+    monkeypatch.setattr("yaatv.workflow.install_ffmpeg", lambda **_kwargs: None)
+    monkeypatch.setattr("yaatv.workflow.run_scry", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        "yaatv.workflow.maybe_refresh_update_cache",
+        lambda: (_ for _ in ()).throw(AssertionError("system mode must not refresh updates")),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("system mode must not read the notice")),
+    )
+
+    assert workflow_run(parse_args([mode]), stderr=StringIO()) == 0

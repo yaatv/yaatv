@@ -33,6 +33,7 @@ from .output import (
 )
 from .planning import choose_audio_plan, output_size, quality_warnings
 from .self_install import install_yaatv
+from .update import cached_update_notice, maybe_refresh_update_cache
 
 # ---------------------------------------------------------------------------
 # 4. Input classification and tool discovery
@@ -196,6 +197,7 @@ def run(
             print(quote_command(command), file=stderr)
             return 0
 
+        maybe_refresh_update_cache()
         try:
             print("Encoding...", file=stderr)
             ffmpeg_result = run_ffmpeg(command, verbose=args.verbose, duration=output_duration, stderr=stderr)
@@ -238,4 +240,7 @@ def run(
         print_output_summary(output_path, stats, stderr=stderr)
         if args.open_folder:
             open_output_folder(output_path, stderr)
+        update_notice = cached_update_notice()
+        if update_notice:
+            print(update_notice, file=stderr)
     return 0
