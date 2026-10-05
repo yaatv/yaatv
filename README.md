@@ -146,6 +146,9 @@ yaatv -a track.flac -i cover.jpg --pad 2
 - Common source audio metadata (such as title, artist, album, and date) is preserved into video outputs where supported.
 - The planned output file appears before encoding starts.
 - yaatv shows simple progress while encoding and verifying.
+- Post-encode FFprobe verification has a 30-second timeout. If verification
+  fails or times out, the unverified output is removed and any existing
+  output being replaced is preserved.
 - Existing output files require confirmation before replacement.
 - Warnings appear when source audio, image size, or file extensions may be
   less than ideal.

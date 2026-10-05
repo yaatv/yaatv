@@ -16,6 +16,8 @@ from ..planning import COPY_AAC_SAMPLE_RATE
 from .tools import FFMPEG_DOWNLOAD_PAGE
 
 FFMPEG_ERROR_TAIL_LINES = 20
+# Output verification reads metadata, not the full encoded media.
+FFPROBE_OUTPUT_TIMEOUT_SECONDS = 30
 FFMPEG_PROGRESS_KEYS = {
     "bitrate",
     "drop_frames",
@@ -140,7 +142,13 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
             text=True,
             encoding="utf-8",
             errors="replace",
+            timeout=FFPROBE_OUTPUT_TIMEOUT_SECONDS,
         )  # nosec B603
+    except subprocess.TimeoutExpired as exc:
+        raise YaatvError(
+            f"FFprobe timed out after {FFPROBE_OUTPUT_TIMEOUT_SECONDS} seconds "
+            f"while verifying output: {output_path}"
+        ) from exc
     except FileNotFoundError as exc:
         raise YaatvError(
             "FFprobe was not found. Run yaatv --install-ffmpeg to install FFmpeg for yaatv, "

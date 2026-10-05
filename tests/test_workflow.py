@@ -1,3 +1,4 @@
+import subprocess
 from io import StringIO
 from pathlib import Path
 
@@ -453,6 +454,47 @@ def test_failed_verification_removes_newly_created_output(
 
     assert not output_path.exists()
     assert f"warning: removed partial output from failed run: {output_path}" in stderr.getvalue()
+
+@pytest.mark.parametrize("output_exists", [False, True])
+def test_verification_timeout_cleans_encoded_output_and_preserves_existing_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    output_exists: bool,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    if output_exists:
+        output_path.write_bytes(b"previous output")
+    stderr = StringIO()
+    encoded_paths: list[Path] = []
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        encoded_path = Path(command[-1])
+        encoded_paths.append(encoded_path)
+        encoded_path.write_bytes(b"unverified video")
+        return 0
+
+    def timed_out_probe(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command[0] == "ffprobe"
+        raise subprocess.TimeoutExpired(command, kwargs.get("timeout", 30))
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+    monkeypatch.setattr("yaatv.ffmpeg.runner.subprocess.run", timed_out_probe)
+
+    with pytest.raises(YaatvError, match="FFprobe timed out after 30 seconds"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path), "--overwrite"],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert len(encoded_paths) == 1
+    assert not encoded_paths[0].exists()
+    assert f"removed partial output from failed run: {encoded_paths[0]}" in stderr.getvalue()
+    if output_exists:
+        assert output_path.read_bytes() == b"previous output"
+        assert encoded_paths[0] != output_path
+    else:
+        assert not output_path.exists()
 
 
 
