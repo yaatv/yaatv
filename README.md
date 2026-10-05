@@ -15,9 +15,9 @@ Give it audio. Give it artwork. Get a video you can upload.
 
 Browser converter: <https://convert.yaatv.org>
 
-## Download
+## Downloads
 
-Download the ZIP for your computer from the latest release:
+Download a portable ZIP or a single-file executable for your computer from the latest release:
 
 <https://github.com/yaatv/yaatv/releases/latest>
 
@@ -31,6 +31,21 @@ Use one of these release assets:
   [`yaatv-macos-x64.zip`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-macos-x64.zip)
 - macOS arm64:
   [`yaatv-macos-arm64.zip`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-macos-arm64.zip)
+
+The single-file executables run without extraction:
+
+- Windows x64:
+  [`yaatv-windows-x64.exe`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-windows-x64.exe)
+- Linux x64:
+  [`yaatv-linux-x64`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-linux-x64)
+- macOS x64:
+  [`yaatv-macos-x64`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-macos-x64)
+- macOS arm64:
+  [`yaatv-macos-arm64`](https://github.com/yaatv/yaatv/releases/latest/download/yaatv-macos-arm64)
+
+The release also includes a `*-notices.zip` beside each single-file executable. It contains the license,
+third-party notices, FFmpeg build details, and source-code notice for that executable. Check `SHA256SUMS`
+to verify downloaded release assets.
 
 You can ignore GitHub's "Source code (zip)" and "Source code (tar.gz)" files
 unless you specifically want the code.
@@ -75,6 +90,38 @@ chmod +x ./yaatv-macos
 ```
 
 Use `yaatv-macos-arm64` instead when you download the Apple Silicon ZIP.
+
+### Install a single-file release as a command
+
+The single-file executable can be installed for your user so you can run `yaatv` from any directory. This
+does not install FFmpeg; use `--install-ffmpeg` for that.
+
+Windows:
+
+```powershell
+.\yaatv-windows-x64.exe --install
+```
+
+Linux:
+
+```sh
+chmod +x ./yaatv-linux-x64
+./yaatv-linux-x64 --install
+```
+
+macOS x64 or Apple Silicon:
+
+```sh
+chmod +x ./yaatv-macos-x64
+./yaatv-macos-x64 --install
+```
+
+On Apple Silicon, replace `yaatv-macos-x64` with `yaatv-macos-arm64`.
+
+The installer copies the single-file executable to a per-user location and adds that directory to your user
+PATH when needed. Open a new terminal if yaatv reports that it changed PATH. The portable ZIP remains usable
+from its extracted directory; `--install` is only supported by the single-file release. Python installations
+already provide the `yaatv` command.
 
 ## Common uses
 
@@ -156,6 +203,8 @@ can be applied.
 - Existing output files require confirmation before replacement.
 - Warnings appear when source audio, image size, or file extensions may be
   less than ideal.
+- After a successful encode, yaatv may show a notice when its cached status knows
+  about a newer stable release. It does not download or install updates.
 
 ## Supported input formats
 
@@ -185,6 +234,7 @@ can be applied.
 | `--verbose` | Show raw encoding output. |
 | `--overwrite` | Replace an existing output file without asking first. |
 | `--open-folder` | Open the output folder after a successful encode. |
+| `--install` | Install the running single-file release for the current user. |
 | `--install-ffmpeg` | Install local media tools for yaatv. |
 | `--scry` | Check yaatv, media tools, and output folder setup. |
 
@@ -196,8 +246,11 @@ If macOS blocks the downloaded executable, allow it from System Settings, or
 remove the quarantine flag:
 
 ```sh
-xattr -d com.apple.quarantine ./yaatv-macos
+xattr -d com.apple.quarantine ./yaatv-macos-x64
 ```
+
+Use the downloaded executable's filename in that command, such as `yaatv-macos-arm64` on Apple Silicon.
+For a ZIP release, use the extracted executable's name instead.
 
 If an output file already exists, choose a different output path, confirm
 replacement, or use `--overwrite` deliberately.
@@ -279,9 +332,10 @@ workflows, and guidelines.
 
 ## Publishing
 
-Tagging a version that starts with `v` builds the Windows, Linux, macOS x64,
-and macOS arm64 assets, generates matching SPDX Software Bills of Materials (`.spdx.json`),
-and attaches them to a GitHub release alongside `SHA256SUMS`.
+Tagging a version that starts with `v` builds the portable ZIP and single-file
+executable for Windows, Linux, macOS x64, and macOS arm64. The release includes
+companion notices ZIPs for the single-file executables, SPDX Software Bills of
+Materials (`.spdx.json`), and `SHA256SUMS`.
 
 ```sh
 git tag v<version>

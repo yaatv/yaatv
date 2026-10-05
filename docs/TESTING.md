@@ -26,11 +26,54 @@ Unit tests are organized into focused modules by domain:
 - **`tests/test_ffmpeg_tools.py`**: Binary discovery, tool health checks, app-managed tool paths, and platform detection.
 - **`tests/test_diagnostics.py`**: `--scry` diagnostics and tool reports.
 - **`tests/test_ffmpeg_install.py`**: Managed FFmpeg installation (archive downloads, HTTPS enforcement, retries, checksums, archive extraction, platform fallback sources, transactional staging, rollback, and platform-specific installer dispatch).
+- **`tests/test_self_install.py`**: Onefile-only self-installation, current-user locations, shell and registry PATH updates, idempotent upgrades, and replacement failures.
+- **`tests/test_update.py`**: Update-cache paths and schema, freshness, stable semantic versions, bounded GitHub responses, and silent network/cache failures.
 - **`tests/test_system.py`**: FFmpeg and FFprobe tool resolution and `--scry` dispatch behavior.
-- **`tests/test_workflow.py`**: End-to-end `cli.run(argv)` coverage plus direct `workflow.run(Config)` tests (dry runs, quick mode, overwrite prompts and semantics, transactional cleanup on failure, and error handling).
+- **`tests/test_workflow.py`**: End-to-end `cli.run(argv)` coverage plus direct `workflow.run(Config)` tests (dry runs, quick mode, overwrite prompts and semantics, transactional cleanup on failure, update notices, and error handling).
 - **`tests/_support.py` & `tests/conftest.py`**: Shared test helpers, archive generators, and pytest configuration.
 
 These tests mock external calls to `subprocess.run` and `subprocess.Popen` where appropriate. They run quickly, deterministically, and offline without requiring FFmpeg installed on the system.
+
+## Standalone release dependency lock
+
+Standalone release artifacts are built with Python 3.11 and the exact package versions in
+`requirements-release.txt`. The release workflow installs this file before installing yaatv,
+generating third-party license notices, or running PyInstaller. PEP 508 platform markers cover
+PyInstaller's Windows- and macOS-specific dependencies; the same lock is used by the Windows x64,
+Linux x64, macOS x64, and macOS arm64 runners.
+
+To intentionally refresh the lock, update the exact runtime, PyInstaller, build-backend, and
+transitive dependency pins in `requirements-release.txt`. Then use a clean Python 3.11 environment
+on each supported release target and run:
+
+```sh
+python -m pip install -r requirements-release.txt
+python -m pip install --no-deps --no-build-isolation .
+python -m pip check
+```
+
+Resolve any marker or version conflicts before updating the lock. Run
+`python -m pytest tests/test_project.py` to check that release jobs consume the lock and retain all
+four targets. Do not replace the exact pins with the lower bounds from `pyproject.toml`; those
+remain the package requirements for ordinary users.
+
+## Standalone formats and self-installation
+
+Each release target produces the existing onedir ZIP and an additional onefile executable. Release jobs
+smoke-test the actual onefile binary with `--version`, `--help`, and a media dry run. The onefile executable
+is published with a separate notices ZIP and SPDX SBOM; neither binary format bundles FFmpeg or FFprobe.
+
+The `--install` unit tests use temporary paths and a fake Windows registry module. They cover the explicit
+onefile build marker, reject onedir and Python/source runs, and verify per-user install locations and PATH
+updates without changing the developer machine's PATH. The onefile build gets its marker from the release
+workflow's PyInstaller data files.
+
+## Update notices
+
+`tests/test_update.py` and `tests/test_workflow.py` mock all network access. They cover the cache schema and
+24-hour freshness period, stable semantic-version ordering, HTTP/API failures, and notice timing. A normal
+encode starts a daemon refresh with a three-second timeout when the cache is missing or stale, then reads the
+cache only after successful output verification. Unit tests do not depend on live GitHub access.
 
 ### 2. Integration Tests (`tests/test_ffmpeg_integration.py`)
 
@@ -90,6 +133,12 @@ python -m pytest tests/test_ffmpeg_install.py
 
 # Run top-level workflow orchestration tests
 python -m pytest tests/test_workflow.py
+
+# Run current-user standalone install tests
+python -m pytest tests/test_self_install.py
+
+# Run cached update-check tests
+python -m pytest tests/test_update.py
 
 # Run project packaging and contract tests
 python -m pytest tests/test_project.py

@@ -17,6 +17,8 @@ yaatv/
 │   ├── planning.py          # Audio, canvas, and quality planning
 │   ├── output.py            # Output paths, summaries, and output-file handling
 │   ├── diagnostics.py       # --scry diagnostics and tool reports
+│   ├── self_install.py      # Onefile distribution detection and current-user PATH installation
+│   ├── update.py            # Cached stable-release lookup and update notices
 │   └── ffmpeg/
 │       ├── __init__.py      # FFmpeg package
 │       ├── tools.py           # FFmpeg and FFprobe discovery and health checks
@@ -39,6 +41,8 @@ yaatv/
 │   ├── test_ffmpeg_install.py # Managed FFmpeg installer, downloads, and rollback
 │   ├── test_system.py       # Tool resolution and --scry dispatch behavior
 │   ├── test_workflow.py     # cli.run argv coverage and direct Config workflow tests
+│   ├── test_self_install.py # Distribution detection, install paths, and PATH handling
+│   ├── test_update.py       # Cache, semantic-version, network, and notice behavior
 │   └── test_ffmpeg_integration.py # End-to-end integration tests requiring real FFmpeg/FFprobe
 ├── docs/                    # Engineering documentation and assets
 ├── scripts/                 # Contributor and CI automation scripts (e.g. check.py)
@@ -89,7 +93,8 @@ FFmpeg Command & Filtergraph Construction (`ffmpeg/command.py`)
 Execution & Verification (`workflow.py`, `output.py`, `ffmpeg/runner.py`)
   ├── Overwrite confirmation (if destination exists and not --overwrite)
   ├── Subprocess execution (streaming stderr for progress parsing)
-  └── Post-encode probing with FFprobe (verifying output duration and valid streams)
+  ├── Post-encode probing with FFprobe (verifying output duration and valid streams)
+  └── On success, read cached update status and print a notice if a newer stable release is known
 ```
 
 ## Media Tools & Environment (`--install-ffmpeg`, `--scry`)
@@ -97,6 +102,31 @@ Execution & Verification (`workflow.py`, `output.py`, `ffmpeg/runner.py`)
 - **Tool Resolution**: `yaatv` searches for `ffmpeg` and `ffprobe` in standard platform locations, local application data directories (`%LOCALAPPDATA%\yaatv\bin` on Windows, `~/.local/share/yaatv/bin` on Linux/macOS), and the system `PATH`.
 - **`--install-ffmpeg`**: Automated download and extraction of static builds for the current operating system from upstream release repositories.
 - **`--scry`**: Environment diagnostic command. Probes for local media binaries, reports versions, checks write permissions in target directories, and validates system readiness without creating a video.
+
+## Standalone releases and `--install`
+
+The release workflow produces both the portable PyInstaller onedir ZIP and a separate PyInstaller onefile
+executable for each supported target. Neither format includes FFmpeg or FFprobe. Each onefile executable is
+published alongside a notices ZIP and an SPDX SBOM.
+
+The onefile build embeds an explicit `pyinstaller-onefile` distribution marker. The onedir ZIP embeds a
+different marker, and Python/source runs are identified separately. `workflow.py` dispatches `--install`
+before media requirements; `self_install.py` accepts only the onefile identity. It copies the running file to
+a current-user executable directory (`%LOCALAPPDATA%\Programs\yaatv\bin` on Windows and `~/.local/bin` on
+Linux/macOS) and adds that directory to the user PATH when needed. It does not modify the managed FFmpeg path.
+
+## Update notices
+
+`update.py` stores the latest known stable release and its UTC check time in the user's cache directory. A
+missing or older-than-24-hours cache starts a daemon refresh with a three-second network timeout. The encode
+workflow does not wait for the request. After output verification succeeds, it compares the cached version
+with `yaatv.__version__` and may print a notice. Network and cache failures are silent and never change the
+encode result.
+
+The JSON cache uses schema version `1` with `checked_at` (UTC ISO 8601) and `latest_version` (stable SemVer).
+It is stored at `%LOCALAPPDATA%\yaatv\cache\update-status.json` on Windows,
+`~/Library/Caches/yaatv/update-status.json` on macOS, and `$XDG_CACHE_HOME/yaatv/update-status.json` on Linux
+when `XDG_CACHE_HOME` is absolute, otherwise `~/.cache/yaatv/update-status.json`.
 
 ## Subprocess & Security Boundaries
 

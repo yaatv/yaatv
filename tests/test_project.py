@@ -56,6 +56,24 @@ def test_readme_documents_generic_release_tag_publishing() -> None:
     assert "git tag v<version>" in readme
 
 
+def test_readme_documents_zip_and_single_file_releases() -> None:
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+
+    for asset in (
+        "yaatv-windows-x64.zip",
+        "yaatv-linux-x64.zip",
+        "yaatv-macos-x64.zip",
+        "yaatv-macos-arm64.zip",
+        "yaatv-windows-x64.exe",
+        "yaatv-linux-x64",
+        "yaatv-macos-x64",
+        "yaatv-macos-arm64",
+    ):
+        assert asset in readme
+    assert "*-notices.zip" in readme
+    assert "--install" in readme
+
+
 
 def test_release_workflow_checks_tag_version_before_building() -> None:
     workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
