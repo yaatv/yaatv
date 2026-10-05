@@ -22,7 +22,8 @@ def test_high_quality_aac_is_copied() -> None:
     assert is_high_quality_aac(metadata)
     assert choose_audio_plan(metadata, pad=0).codec_args == ("-c:a", "copy")
 
-def test_pad_rejects_high_quality_aac_copy_mode() -> None:
+@pytest.mark.parametrize("pad", [0.25, 1, 2])
+def test_pad_transcodes_high_quality_aac(pad: float) -> None:
     metadata = AudioMetadata(
         codec="aac",
         bitrate=384_000,
@@ -31,8 +32,20 @@ def test_pad_rejects_high_quality_aac_copy_mode() -> None:
         title=None,
     )
 
-    with pytest.raises(Exception, match="--pad cannot be used"):
-        choose_audio_plan(metadata, pad=1)
+    plan = choose_audio_plan(metadata, pad=pad)
+
+    assert plan.copy is False
+    assert plan.codec_args == ("-c:a", "aac", "-b:a", "384k", "-ar", "48000")
+    assert plan.filter_args == ("-af", f"apad=pad_dur={pad:g}")
+
+def test_high_quality_aac_without_padding_keeps_copy_mode() -> None:
+    metadata = AudioMetadata(codec="aac", bitrate=384_000, sample_rate=48_000, artist=None, title=None)
+
+    plan = choose_audio_plan(metadata, pad=0)
+
+    assert plan.copy is True
+    assert plan.codec_args == ("-c:a", "copy")
+    assert plan.filter_args == ()
 
 def test_low_bitrate_warning_is_reported() -> None:
     warnings = quality_warnings(

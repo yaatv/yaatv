@@ -135,6 +135,10 @@ Add a short silence pad:
 yaatv -a track.flac -i cover.jpg --pad 2
 ```
 
+High-quality AAC is stream-copied when no padding is requested. Adding silence
+with `--pad` instead uses the normal AAC transcode settings so the audio filter
+can be applied.
+
 ## What to expect
 
 - yaatv keeps cover art from stretching.
