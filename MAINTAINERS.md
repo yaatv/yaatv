@@ -13,7 +13,7 @@ This document describes the maintainer team, responsibilities, review procedures
 Maintainers are responsible for:
 
 1. **Reviewing Pull Requests**: Evaluating community contributions for technical correctness, test coverage, code readability, and alignment with yaatv's design principles (standard-library first, minimal dependencies).
-2. **Merge Authority & Attribution**: Enforcing the [Contributor Attribution and Merge Policy](CONTRIBUTING.md#contributor-attribution-and-merge-policy). Merges use **Squash and Merge**, ensuring the original contributor retains commit authorship and co-author trailers (`Co-authored-by:`) are included for multi-person contributions.
+2. **Merge Authority & Attribution**: Enforcing the [merge and credit guidance](CONTRIBUTING.md#merging-and-credit). Merges use **Squash and Merge**, ensuring the original contributor retains commit authorship and co-author trailers (`Co-authored-by:`) are included for multi-person contributions.
 3. **Release Management**: Tagging official releases (`v*`), verifying multi-platform binary builds (Windows, Linux, macOS), and submitting Windows assets to Microsoft Security Intelligence.
 4. **Security Triage**: Triaging private vulnerability reports submitted through GitHub Security Advisories as outlined in [SECURITY.md](SECURITY.md).
 5. **Project Direction**: Defining CLI scope, stability guarantees, and long-term maintenance.

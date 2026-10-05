@@ -6,16 +6,12 @@
 
 <!-- If applicable, link to the issue: "Closes #123" or "Fixes #123" -->
 
-## Testing performed
+## Testing
 
 <!-- Describe how you tested your change (e.g. commands run, test cases added, platform tested on). -->
 
-## Contributor Checklist
+## Contributor checklist
 
-- [ ] This PR is cohesive around a single feature, bugfix, or maintenance task (including relevant tests and docs).
-- [ ] No active pull request already addresses this issue (or I have noted why this PR supersedes it).
-- [ ] I understand and can explain the logic of every changed line in this PR.
-- [ ] I have tested these changes locally (including any code drafted with AI assistance).
-- [ ] I have added or updated tests for any changed behavior.
-- [ ] I have updated README or docs if user-facing behavior, options, or requirements changed.
-- [ ] I have not committed build outputs, virtual environments, media files, or secrets.
+- [ ] This PR addresses one focused issue or change, or a maintainer has approved its broader scope.
+- [ ] I have tested the changes I am submitting.
+- [ ] I have read the [AI contribution policy](../.AI_POLICY/README.md) and personally reviewed, understand, and take responsibility for everything in this PR.

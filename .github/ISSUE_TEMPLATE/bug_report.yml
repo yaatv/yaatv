@@ -97,3 +97,11 @@ body:
       options:
         - label: I would like to submit a pull request for this issue.
 
+  - type: checkboxes
+    id: policy-acknowledgment
+    attributes:
+      label: Policies
+      options:
+        - label: I have read and agree to follow the contribution and AI policies.
+          required: true
+
