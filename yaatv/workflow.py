@@ -32,6 +32,7 @@ from .output import (
     resolve_output_path,
 )
 from .planning import choose_audio_plan, output_size, quality_warnings
+from .self_install import install_yaatv
 
 # ---------------------------------------------------------------------------
 # 4. Input classification and tool discovery
@@ -90,6 +91,9 @@ def run(
     stdin: TextIO = sys.stdin,
     stderr: TextIO = sys.stderr,
 ) -> int:
+    if args.install:
+        install_yaatv(stderr=stderr)
+        return 0
     if args.install_ffmpeg:
         install_ffmpeg(stderr=stderr)
         return 0

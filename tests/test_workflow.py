@@ -901,3 +901,16 @@ def test_workflow_run_accepts_config_and_dispatches_scry(monkeypatch: pytest.Mon
     assert workflow_run(args, stdin=stdin, stderr=stderr) == 3
     assert captured["stderr"] is stderr
 
+
+def test_workflow_dispatches_standalone_install_before_encode_requirements(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = parse_args(["--install"])
+    stderr = StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_install(*, stderr: StringIO) -> None:
+        captured["stderr"] = stderr
+
+    monkeypatch.setattr("yaatv.workflow.install_yaatv", fake_install)
+
+    assert workflow_run(args, stderr=stderr) == 0
+    assert captured["stderr"] is stderr

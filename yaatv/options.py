@@ -67,6 +67,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
   yaatv -a short.wav -i cover.jpg --aspect 9:16
   yaatv -a mix.wav -i cover.jpg --bg-blur
   yaatv -a session.mp3 -i art.jpg -o upload.mov
+  yaatv --install
   yaatv --install-ffmpeg
   yaatv --scry""",
     )
@@ -82,14 +83,17 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
         "-a",
         "--audio",
         type=Path,
-        help="Path to audio file (required unless using --install-ffmpeg, --scry, or positional files)",
+        help=(
+            "Path to audio file (required unless using --install, --install-ffmpeg, "
+            "--scry, or positional files)"
+        ),
     )
     media_group.add_argument(
         "-i",
         "--image",
         type=Path,
         help=(
-            "Path to cover image (required unless using --install-ffmpeg, "
+            "Path to cover image (required unless using --install, --install-ffmpeg, "
             "--scry, positional files, or color-only output)"
         ),
     )
@@ -173,6 +177,11 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
 
     system_group = parser.add_argument_group("system and diagnostics")
     system_group.add_argument(
+        "--install",
+        action="store_true",
+        help="Install the standalone single-file yaatv executable for the current user",
+    )
+    system_group.add_argument(
         "--install-ffmpeg",
         action="store_true",
         help="Install FFmpeg and FFprobe into yaatv's app-managed bin directory",
@@ -188,6 +197,54 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
     args.bg_color_explicit = any(arg == "--bg-color" or arg.startswith("--bg-color=") for arg in argv_list)
     if args.install_ffmpeg and args.scry:
         parser.error("--install-ffmpeg and --scry are mutually exclusive; use one or the other.")
+    if args.install and args.install_ffmpeg:
+        parser.error("--install and --install-ffmpeg are mutually exclusive; use one or the other.")
+    if args.install and args.scry:
+        parser.error("--install and --scry are mutually exclusive; use one or the other.")
+    encode_options = {
+        "-a",
+        "--audio",
+        "-i",
+        "--image",
+        "-b",
+        "--bg-image",
+        "--resolution",
+        "--aspect",
+        "--bg-color",
+        "--bg-blur",
+        "-o",
+        "--output",
+        "--output-dir",
+        "--pad",
+        "--dry-run",
+        "--overwrite",
+        "--open-folder",
+        "--no-warn",
+        "--verbose",
+    }
+    encode_long_options = {option for option in encode_options if option.startswith("--")}
+    has_explicit_encode_option = any(
+        arg in encode_options or any(arg.startswith(f"{option}=") for option in encode_long_options)
+        for arg in argv_list
+    )
+    if (args.install or args.install_ffmpeg or args.scry) and (
+        args.files
+        or args.audio is not None
+        or args.image is not None
+        or args.bg_image is not None
+        or args.output is not None
+        or args.output_dir is not None
+        or args.bg_blur
+        or args.bg_color_explicit
+        or args.pad != 0
+        or args.dry_run
+        or args.overwrite
+        or args.open_folder
+        or args.no_warn
+        or args.verbose
+        or has_explicit_encode_option
+    ):
+        parser.error("System options cannot be combined with media inputs or encoding options.")
     if args.bg_image is not None and args.bg_blur:
         parser.error("--bg-image and --bg-blur are mutually exclusive; use one or the other.")
     if args.bg_color_explicit and (args.bg_image is not None or args.bg_blur):

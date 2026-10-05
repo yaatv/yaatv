@@ -32,6 +32,7 @@ class Config:
     open_folder: bool
     no_warn: bool
     verbose: bool
+    install: bool
     install_ffmpeg: bool
     scry: bool
     bg_color_explicit: bool
