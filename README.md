@@ -269,9 +269,10 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
 workflows, and guidelines.
 
 - Look through [good first issues](https://github.com/yaatv/yaatv/labels/good%20first%20issue)
-  to get started.
-- Leave a comment on an issue before starting work to coordinate and avoid duplicate PRs.
+  to get started. Before starting on an issue, it is best to comment that you
+  plan to work on it so others can avoid overlapping effort.
 - Report bugs or suggest features on the [issue tracker](https://github.com/yaatv/yaatv/issues).
+- Read the [AI Contribution Policy](.AI_POLICY/README.md).
 - See [CONTRIBUTORS](CONTRIBUTORS) for recognition of everyone who has helped
   build and test yaatv.
 - Read our [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before participating.
