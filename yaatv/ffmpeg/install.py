@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import shutil
@@ -163,6 +164,19 @@ def install_ffmpeg(
 
 T = TypeVar("T")
 
+class _SourceError(YaatvError):
+    """A download or archive failure that another source may resolve."""
+
+
+_LOCAL_FILESYSTEM_ERRNOS = {
+    getattr(errno, name)
+    for name in (
+        "EACCES", "EPERM", "ENOSPC", "EDQUOT", "EROFS",
+        "ENOENT", "ENOTDIR", "EISDIR", "EMFILE", "ENFILE",
+    )
+    if hasattr(errno, name)
+}
+
 
 def _install_with_fallbacks(
     platform_label: str,
@@ -177,7 +191,7 @@ def _install_with_fallbacks(
         source_name = getattr(source, "name", "source")
         try:
             return installer(source)
-        except Exception as exc:
+        except _SourceError as exc:
             last_exc = exc
             errors.append(f"{source_name}: {exc}")
             if index < len(sources) - 1:
@@ -458,7 +472,9 @@ def _download_and_verify_archive(
     try:
         _download_url(url, archive_path)
     except OSError as exc:
-        raise YaatvError(f"Could not download {label}: {exc}") from exc
+        if exc.errno in _LOCAL_FILESYSTEM_ERRNOS:
+            raise YaatvError(f"Could not save {label}: {exc}") from exc
+        raise _SourceError(f"Could not download {label}: {exc}") from exc
 
     _verify_sha256(archive_path, expected_sha256)
     print(f"Downloaded {label}: {format_file_size(archive_path.stat().st_size)}", file=stderr)
@@ -587,6 +603,8 @@ def _download_url(url: str, destination: Path) -> None:
                     shutil.copyfileobj(response, output)
             return
         except OSError as exc:
+            if exc.errno in _LOCAL_FILESYSTEM_ERRNOS:
+                raise
             destination.unlink(missing_ok=True)
             last_error = exc
             if attempt == 1:
@@ -605,7 +623,7 @@ def _verify_sha256(path: Path, expected_sha256: str) -> None:
 
     actual_sha256 = digest.hexdigest()
     if actual_sha256.lower() != expected_sha256.lower():
-        raise YaatvError(
+        raise _SourceError(
             "FFmpeg archive checksum mismatch: "
             f"expected {expected_sha256.lower()}, got {actual_sha256.lower()}"
         )
@@ -621,7 +639,7 @@ def _extract_windows_ffmpeg_tools(archive_path: Path, destination: Path) -> None
                     with (destination / tool_name).open("wb") as output:
                         shutil.copyfileobj(source, output)
     except zipfile.BadZipFile as exc:
-        raise YaatvError("FFmpeg archive is not a valid ZIP file.") from exc
+        raise _SourceError("FFmpeg archive is not a valid ZIP file.") from exc
 
 
 def _find_ffmpeg_zip_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.ZipInfo:
@@ -636,7 +654,7 @@ def _find_ffmpeg_zip_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile
         candidates.append(member)
 
     if not candidates:
-        raise YaatvError(f"FFmpeg archive did not contain bin/{tool_name}.")
+        raise _SourceError(f"FFmpeg archive did not contain bin/{tool_name}.")
     return sorted(candidates, key=lambda member: member.filename)[0]
 
 
@@ -649,7 +667,7 @@ def _extract_zip_tool(archive_path: Path, destination: Path, tool_name: str) -> 
                 with (destination / tool_name).open("wb") as output:
                     shutil.copyfileobj(source, output)
     except zipfile.BadZipFile as exc:
-        raise YaatvError(f"{tool_name} archive is not a valid ZIP file.") from exc
+        raise _SourceError(f"{tool_name} archive is not a valid ZIP file.") from exc
 
 
 def _find_zip_tool_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.ZipInfo:
@@ -665,5 +683,5 @@ def _find_zip_tool_member(archive: zipfile.ZipFile, tool_name: str) -> zipfile.Z
         candidates.append(member)
 
     if not candidates:
-        raise YaatvError(f"{tool_name} archive did not contain {tool_name}.")
+        raise _SourceError(f"{tool_name} archive did not contain {tool_name}.")
     return sorted(candidates, key=lambda member: (member.filename.count("/"), member.filename))[0]
