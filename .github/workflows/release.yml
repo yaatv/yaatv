@@ -79,18 +79,22 @@ jobs:
             package_name: yaatv-windows-x64
             executable_name: yaatv
             extension: .exe
+            single_file_name: yaatv-windows-x64.exe
           - os: ubuntu-latest
             package_name: yaatv-linux-x64
             executable_name: yaatv-linux
             extension: ""
+            single_file_name: yaatv-linux-x64
           - os: macos-15-intel
             package_name: yaatv-macos-x64
             executable_name: yaatv-macos
             extension: ""
+            single_file_name: yaatv-macos-x64
           - os: macos-15
             package_name: yaatv-macos-arm64
             executable_name: yaatv-macos-arm64
             extension: ""
+            single_file_name: yaatv-macos-arm64
 
     steps:
       - name: Check out repository
@@ -206,30 +210,46 @@ jobs:
         run: |
           python scripts/generate_licenses.py -o THIRD_PARTY_LICENSES.txt
           python -c "from pathlib import Path; Path('yaatv_launcher.py').write_text('from yaatv.cli import main\nraise SystemExit(main())\n', encoding='utf-8')"
+          mkdir -p dist/onedir dist/onefile build/onedir build/onefile build/work/onedir build/work/onefile build/spec/onedir build/spec/onefile
           separator=":"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             separator=";"
           fi
-          pyinstaller_args=(
+          common_args=(
             --noconfirm
-            --onedir
-            --name "${{ matrix.executable_name }}${{ matrix.extension }}"
             --add-data "THIRD_PARTY_LICENSES.txt${separator}."
             --add-data "FFMPEG_BUILD_INFO.txt${separator}."
             --exclude-module numpy
             yaatv_launcher.py
           )
-          pyinstaller "${pyinstaller_args[@]}"
+          printf 'pyinstaller-onedir\n' > build/onedir/yaatv-distribution.txt
+          pyinstaller \
+            --onedir \
+            --name "${{ matrix.executable_name }}${{ matrix.extension }}" \
+            --distpath dist/onedir \
+            --workpath build/work/onedir \
+            --specpath build/spec/onedir \
+            --add-data "build/onedir/yaatv-distribution.txt${separator}." \
+            "${common_args[@]}"
+          printf 'pyinstaller-onefile\n' > build/onefile/yaatv-distribution.txt
+          pyinstaller \
+            --onefile \
+            --name "${{ matrix.single_file_name }}" \
+            --distpath dist/onefile \
+            --workpath build/work/onefile \
+            --specpath build/spec/onefile \
+            --add-data "build/onefile/yaatv-distribution.txt${separator}." \
+            "${common_args[@]}"
 
       - name: Smoke test executable
         shell: bash
         run: |
           case "$RUNNER_OS" in
             Windows)
-              executable="dist/${{ matrix.executable_name }}.exe/${{ matrix.executable_name }}.exe"
+              executable="dist/onedir/${{ matrix.executable_name }}.exe/${{ matrix.executable_name }}.exe"
               ;;
             *)
-              executable="dist/${{ matrix.executable_name }}/${{ matrix.executable_name }}"
+              executable="dist/onedir/${{ matrix.executable_name }}/${{ matrix.executable_name }}"
               ;;
           esac
           python - <<'PY'
@@ -285,20 +305,36 @@ jobs:
             --resolution 1080p \
             --no-warn
 
+      - name: Smoke test onefile executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          executable="dist/onefile/${{ matrix.single_file_name }}"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod +x "$executable"
+          fi
+          "$executable" --version
+          "$executable" --help >/dev/null
+          "$executable" \
+            --audio smoke-audio.wav \
+            --image smoke-image.png \
+            --output onefile-smoke-output.mp4 \
+            --dry-run \
+            --no-warn
+
       - name: Assemble release package
         shell: bash
         run: |
           set -euo pipefail
           package_dir="package/${{ matrix.package_name }}"
-          mkdir -p "$package_dir" release-assets
-          case "$RUNNER_OS" in
-            Windows)
-              cp -a dist/${{ matrix.executable_name }}.exe/* "$package_dir/"
-              ;;
-            *)
-              cp -a dist/${{ matrix.executable_name }}/* "$package_dir/"
-              ;;
-          esac
+          single_file_dir="package/${{ matrix.package_name }}-single-file"
+          notices_dir="package/${{ matrix.package_name }}-notices"
+          mkdir -p "$package_dir" "$single_file_dir" "$notices_dir" release-assets
+          onedir_root="dist/onedir/${{ matrix.executable_name }}${{ matrix.extension }}"
+          single_file="dist/onefile/${{ matrix.single_file_name }}"
+          cp -a "$onedir_root"/. "$package_dir/"
+          cp "$single_file" "$single_file_dir/"
+          cp "$single_file" "release-assets/${{ matrix.single_file_name }}"
           python - <<'PY'
           import os
           from pathlib import Path
@@ -324,6 +360,8 @@ jobs:
           Path("SOURCE.txt").write_text(source_notice, encoding="utf-8")
           PY
           cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$package_dir/"
+          cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$single_file_dir/"
+          cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$notices_dir/"
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
@@ -331,6 +369,15 @@ jobs:
           path: package/${{ matrix.package_name }}
           format: spdx-json
           output-file: release-assets/${{ matrix.package_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate single-file SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: package/${{ matrix.package_name }}-single-file
+          format: spdx-json
+          output-file: release-assets/${{ matrix.package_name }}-single-file.spdx.json
           upload-artifact: false
           upload-release-assets: false
 
@@ -350,21 +397,38 @@ jobs:
                       archive.write(path, path.relative_to(root).as_posix())
           PY
 
+      - name: Package single-file notices
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZIP_DEFLATED, ZipFile
+
+          root = Path("package") / "${{ matrix.package_name }}-notices"
+          output = Path("release-assets") / "${{ matrix.package_name }}-notices.zip"
+          with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(root).as_posix())
+          PY
+
       - name: Verify release package and SBOM
         shell: bash
         run: |
           set -euo pipefail
           zip_file="release-assets/${{ matrix.package_name }}.zip"
-          sbom_file="release-assets/${{ matrix.package_name }}.spdx.json"
-          if [[ ! -s "$zip_file" ]]; then
-            echo "Error: Missing or empty release package: $zip_file" >&2
-            exit 1
-          fi
-          if [[ ! -s "$sbom_file" ]]; then
-            echo "Error: Missing or empty SBOM: $sbom_file" >&2
-            exit 1
-          fi
-          echo "Verified release package and SBOM exist: $zip_file, $sbom_file."
+          single_file="release-assets/${{ matrix.single_file_name }}"
+          notices_file="release-assets/${{ matrix.package_name }}-notices.zip"
+          zip_sbom="release-assets/${{ matrix.package_name }}.spdx.json"
+          single_file_sbom="release-assets/${{ matrix.package_name }}-single-file.spdx.json"
+          for artifact in "$zip_file" "$single_file" "$notices_file" "$zip_sbom" "$single_file_sbom"; do
+            if [[ ! -s "$artifact" ]]; then
+              echo "Error: Missing or empty release artifact: $artifact" >&2
+              exit 1
+            fi
+          done
+          echo "Verified both executable formats, notices, and SBOMs."
 
       - name: Upload release package artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -372,7 +436,10 @@ jobs:
           name: ${{ matrix.package_name }}
           path: |
             release-assets/${{ matrix.package_name }}.zip
+            release-assets/${{ matrix.single_file_name }}
+            release-assets/${{ matrix.package_name }}-notices.zip
             release-assets/${{ matrix.package_name }}.spdx.json
+            release-assets/${{ matrix.package_name }}-single-file.spdx.json
           if-no-files-found: error
 
   release:
@@ -402,7 +469,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd release-assets && sha256sum *.zip *.spdx.json | sort -k2 > SHA256SUMS)
+          (cd release-assets && sha256sum *.zip *.spdx.json *.exe yaatv-linux-x64 yaatv-macos-x64 yaatv-macos-arm64 | sort -k2 > SHA256SUMS)
 
       - name: Sign checksums with PGP
         env:
@@ -427,7 +494,7 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release-assets/*.zip
+          subject-path: release-assets/*
 
       - name: Create or update release
         env:
