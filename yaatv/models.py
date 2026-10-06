@@ -114,6 +114,9 @@ class OutputStats:
     audio_codec: str | None
     audio_sample_rate: int | None
     duration: float | None = None
+    video_profile: str | None = None
+    audio_profile: str | None = None
+    audio_bits_per_sample: int | None = None
 
 
 @dataclass(frozen=True)

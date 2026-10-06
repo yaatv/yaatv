@@ -14,7 +14,7 @@ from PIL import Image
 
 from yaatv.cli import run
 from yaatv.ffmpeg.command import YAATV_PROVENANCE
-from yaatv.ffmpeg.runner import probe_output
+from yaatv.ffmpeg.runner import probe_output, verify_output_stats
 
 pytestmark = pytest.mark.integration
 
@@ -230,9 +230,9 @@ def test_cli_encodes_valid_mov_with_ffmpeg(tmp_path: Path) -> None:
     assert output_path.exists()
     assert output_path.stat().st_size > 0
     assert f"Created {output_path}" in stderr.getvalue()
-    assert "note: .mov output uses ProRes 422; file sizes will be very large" in stderr.getvalue()
-    assert "Verified: 1920x1080, ProRes 422/yuv422p10le" in stderr.getvalue()
-    assert "AAC 48kHz" in stderr.getvalue()
+    assert "note: .mov output uses ProRes 422 HQ; file sizes will be very large" in stderr.getvalue()
+    assert "Verified: 1920x1080, ProRes 422 HQ/yuv422p10le" in stderr.getvalue()
+    assert "PCM 24-bit 48kHz" in stderr.getvalue()
     assert "File:" in stderr.getvalue()
 
     _assert_valid_output(ffmpeg, ffprobe, output_path, expected_size=(1920, 1080), max_duration=3, is_prores=True)
@@ -538,16 +538,19 @@ def _assert_valid_output(
     assert _output_duration(ffprobe, output_path) <= max_duration
     stats = probe_output(ffprobe, output_path)
     assert (stats.width, stats.height) == expected_size
+    verify_output_stats(stats, expected_size, is_prores=is_prores)
     if is_prores:
         assert stats.video_codec == "prores"
+        assert stats.video_profile == "HQ"
         assert stats.pixel_format == "yuv422p10le"
+        assert stats.audio_codec == "pcm_s24le"
+        assert stats.audio_bits_per_sample in {None, 24}
     else:
         assert stats.video_codec == "h264"
+        assert stats.video_profile == "High"
         assert stats.pixel_format == "yuv420p"
-    assert stats.frame_rate is not None
-    assert abs(stats.frame_rate - 1.0) <= 0.01
-    assert stats.audio_codec == "aac"
-    assert stats.audio_sample_rate == 48_000
+        assert stats.audio_codec == "aac"
+        assert stats.audio_profile in {None, "LC"}
 
     verification = subprocess.run(
         [ffmpeg, "-v", "error", "-i", str(output_path), "-f", "null", "-"],
