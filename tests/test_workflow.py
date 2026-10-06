@@ -1,6 +1,7 @@
 import subprocess
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,9 +12,16 @@ from tests._support import (
     _video_scale,
 )
 from yaatv.cli import run
-from yaatv.models import AudioMetadata, FFmpegResult, OutputStats, YaatvError
+from yaatv.models import AudioMetadata, AudioStreamInfo, FFmpegResult, OutputStats, YaatvError
 from yaatv.options import parse_args
 from yaatv.output import confirm_overwrite
+from yaatv.planning import estimate_prores_output_size
+from yaatv.workflow import (
+    PRORES_MINIMUM_DISK_RESERVE_BYTES,
+    YOUTUBE_MAX_UPLOAD_DURATION_SECONDS,
+    YOUTUBE_MAX_UPLOAD_SIZE_BYTES,
+    _preflight_prores_output,
+)
 from yaatv.workflow import run as workflow_run
 
 
@@ -41,6 +49,10 @@ def test_run_dry_run_prints_command_without_encoding(
         ),
     )
     monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: pytest.fail("MP4 must not use the ProRes disk preflight"),
+    )
 
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
@@ -55,6 +67,338 @@ def test_run_dry_run_prints_command_without_encoding(
     assert "ffmpeg" in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
+
+def test_run_dry_run_mov_uses_the_profile_specific_pcm_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "master.mov"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None, duration=12.1
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+
+    stderr = StringIO()
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    command = stderr.getvalue()
+    assert "-c:a pcm_s24le" in command
+    assert "-ar 48000" in command
+    assert "-c:a aac" not in command
+
+
+@pytest.mark.parametrize(
+    ("duration", "expects_warning"),
+    [
+        (YOUTUBE_MAX_UPLOAD_DURATION_SECONDS, False),
+        (YOUTUBE_MAX_UPLOAD_DURATION_SECONDS + 1, True),
+    ],
+)
+def test_mp4_dry_run_reports_youtube_duration_limit_without_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    duration: float,
+    expects_warning: bool,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "upload.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", lambda: "ffprobe")
+    monkeypatch.setattr("yaatv.workflow.probe_audio_stream", lambda *_args: None)
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=48_000,
+            artist=None,
+            title=None,
+            duration=duration,
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+
+    stderr = StringIO()
+    assert run(
+        [
+            "-a",
+            str(audio_path),
+            "-i",
+            str(image_path),
+            "-o",
+            str(output_path),
+            "--dry-run",
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    output = stderr.getvalue()
+    assert ("YouTube's 12-hour upload limit" in output) is expects_warning
+    assert "ffmpeg" in output
+    assert not output_path.exists()
+
+def test_prores_preflight_reserves_space_on_the_output_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "destination"
+    output_dir.mkdir()
+    output_path = output_dir / "master.mov"
+    estimated = estimate_prores_output_size((1920, 1080), 60, 2)
+    assert estimated is not None
+    requested_paths: list[Path] = []
+
+    available_bytes = estimated + PRORES_MINIMUM_DISK_RESERVE_BYTES - 1
+
+    def disk_usage(path: Path) -> SimpleNamespace:
+        requested_paths.append(path)
+        return SimpleNamespace(free=available_bytes)
+
+    monkeypatch.setattr("yaatv.workflow.shutil.disk_usage", disk_usage)
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="Not enough free disk space for this ProRes output"):
+        _preflight_prores_output(
+            output_path, (1920, 1080), 60, 2, dry_run=False, stderr=stderr
+        )
+
+    assert requested_paths == [output_dir]
+    assert "Estimated output size: ~" in stderr.getvalue()
+    assert "Available disk space:" in stderr.getvalue()
+
+    available_bytes += 1
+    _preflight_prores_output(
+        output_path, (1920, 1080), 60, 2, dry_run=False, stderr=StringIO()
+    )
+
+def test_insufficient_prores_space_stops_before_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "master.mov"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=48_000,
+            artist=None, title=None, duration=60, channels=2,
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage", lambda _path: SimpleNamespace(free=0)
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    encode_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "yaatv.workflow.run_ffmpeg",
+        lambda command, **_kwargs: encode_calls.append(command),
+    )
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="Not enough free disk space for this ProRes output"):
+        run(
+            ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path)],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert encode_calls == []
+    assert not output_path.exists()
+
+def test_prores_preflight_warns_and_continues_when_disk_query_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def disk_usage(_path: Path) -> SimpleNamespace:
+        raise OSError("share unavailable")
+
+    monkeypatch.setattr("yaatv.workflow.shutil.disk_usage", disk_usage)
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    stderr = StringIO()
+
+    _preflight_prores_output(
+        tmp_path / "master.mov", (1920, 1080), 60, 2, dry_run=False, stderr=stderr
+    )
+
+    assert "warning: could not determine available disk space: share unavailable" in stderr.getvalue()
+
+def test_prores_preflight_checks_fat32_single_file_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=100 * 1024**3),
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: "FAT32")
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="FAT32's 4 GiB maximum single-file size"):
+        _preflight_prores_output(
+            tmp_path / "master.mov", (7680, 4320), 3600, 2, dry_run=False, stderr=stderr
+        )
+
+
+@pytest.mark.parametrize(
+    ("estimated_size", "expects_warning"),
+    [
+        (YOUTUBE_MAX_UPLOAD_SIZE_BYTES, False),
+        (YOUTUBE_MAX_UPLOAD_SIZE_BYTES + 1, True),
+    ],
+)
+def test_prores_preflight_warns_above_youtube_size_limit_without_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    estimated_size: int,
+    expects_warning: bool,
+) -> None:
+    monkeypatch.setattr(
+        "yaatv.workflow.estimate_prores_output_size",
+        lambda *_args: estimated_size,
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=estimated_size * 2),
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    stderr = StringIO()
+
+    _preflight_prores_output(
+        tmp_path / "master.mov",
+        (7680, 4320),
+        3600,
+        2,
+        dry_run=False,
+        stderr=stderr,
+    )
+
+    assert ("YouTube's 256 GB upload size limit" in stderr.getvalue()) is expects_warning
+
+def test_prores_dry_run_reports_insufficient_space_without_failing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "master.mov"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", lambda: "ffprobe")
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=48_000,
+            artist=None, title=None, duration=600, channels=2,
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage", lambda _path: SimpleNamespace(free=0)
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    def unexpected_encode(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("dry run must not encode")
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", unexpected_encode)
+    stderr = StringIO()
+
+    assert run(
+        [
+            "-a",
+            str(audio_path),
+            "-i",
+            str(image_path),
+            "-o",
+            str(output_path),
+            "--resolution",
+            "8k",
+            "--dry-run",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    output = stderr.getvalue()
+    assert "Estimated output size: ~" in output
+    assert "warning: this output is expected to be very large" in output
+    assert "warning: Not enough free disk space" in output
+    assert "Dry run continues because it will not write media." in output
+    assert "ffmpeg" in output
+
+def test_prores_dry_run_reports_fat32_limit_without_failing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=100 * 1024**3),
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: "FAT32")
+    stderr = StringIO()
+
+    _preflight_prores_output(
+        tmp_path / "master.mov", (7680, 4320), 3600, 2, dry_run=True, stderr=stderr
+    )
+
+    assert "warning: The estimated ProRes output exceeds FAT32's 4 GiB" in stderr.getvalue()
+    assert "Dry run continues because it will not write media." in stderr.getvalue()
+
+def test_dry_run_uses_optional_ffprobe_for_multichannel_planning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "surround.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "upload.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", lambda: "ffprobe")
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_audio_stream",
+        lambda *_args: AudioStreamInfo(codec="flac", profile=None, channels=6, channel_layout="5.1"),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=96_000, artist=None, title=None, channels=6
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+
+    stderr = StringIO()
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    command = stderr.getvalue()
+    assert "-b:a 512k" in command
+    assert "unknown layout" not in command
 
 
 
@@ -162,6 +506,7 @@ def test_run_dry_run_does_not_require_ffmpeg_discovery(
 
     monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", resolve_tools)
     monkeypatch.setattr("yaatv.workflow.find_ffmpeg", find_tool)
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", find_tool)
     monkeypatch.setattr(
         "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
@@ -342,6 +687,7 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
             width=1920,
             height=1080,
             video_codec="h264",
+            video_profile="High",
             pixel_format="yuv420p",
             color_range="tv",
             color_space="bt709",
@@ -349,6 +695,7 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
             color_primaries="bt709",
             frame_rate=1.0,
             audio_codec="aac",
+            audio_profile="LC",
             audio_sample_rate=48_000,
         ),
     )
@@ -374,6 +721,71 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
     assert "Encoding..." in stderr.getvalue()
     assert "Verifying..." in stderr.getvalue()
     assert f"Created {output_path}" in stderr.getvalue()
+
+def test_multichannel_probe_selects_the_5_1_aac_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "surround.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "upload.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=96_000,
+            artist=None,
+            title=None,
+            duration=1.0,
+            channels=6,
+        ),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_audio_stream",
+        lambda *_args: AudioStreamInfo(codec="flac", profile=None, channels=6, channel_layout="5.1"),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_output",
+        lambda *_args: OutputStats(
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            video_profile="High",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_profile="LC",
+            audio_sample_rate=48_000,
+        ),
+    )
+    captured: dict[str, list[str]] = {}
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        captured["command"] = command
+        output_path.write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=StringIO(),
+    ) == 0
+
+    command = captured["command"]
+    assert command[command.index("-b:a") + 1] == "512k"
+    assert command[command.index("-ar") + 1] == "48000"
+    assert "-ac" not in command
 
 
 
@@ -648,6 +1060,7 @@ def test_verified_overwrite_atomically_replaces_existing_output(
             width=1920,
             height=1080,
             video_codec="h264",
+            video_profile="High",
             pixel_format="yuv420p",
             color_range="tv",
             color_space="bt709",
@@ -655,6 +1068,7 @@ def test_verified_overwrite_atomically_replaces_existing_output(
             color_primaries="bt709",
             frame_rate=1.0,
             audio_codec="aac",
+            audio_profile="LC",
             audio_sample_rate=48_000,
         ),
     )
@@ -787,6 +1201,7 @@ def test_run_uses_output_dir_and_overwrite_flag(
             width=1920,
             height=1080,
             video_codec="h264",
+            video_profile="High",
             pixel_format="yuv420p",
             color_range="tv",
             color_space="bt709",
@@ -794,6 +1209,7 @@ def test_run_uses_output_dir_and_overwrite_flag(
             color_primaries="bt709",
             frame_rate=1.0,
             audio_codec="aac",
+            audio_profile="LC",
             audio_sample_rate=48_000,
             duration=12.1,
         ),
@@ -901,3 +1317,184 @@ def test_workflow_run_accepts_config_and_dispatches_scry(monkeypatch: pytest.Mon
     assert workflow_run(args, stdin=stdin, stderr=stderr) == 3
     assert captured["stderr"] is stderr
 
+
+def test_workflow_dispatches_standalone_install_before_encode_requirements(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = parse_args(["--install"])
+    stderr = StringIO()
+    captured: dict[str, object] = {}
+
+    def fake_install(*, stderr: StringIO) -> None:
+        captured["stderr"] = stderr
+
+    monkeypatch.setattr("yaatv.workflow.install_yaatv", fake_install)
+
+    assert workflow_run(args, stderr=stderr) == 0
+    assert captured["stderr"] is stderr
+
+
+def _mock_verified_encode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> tuple[Path, Path, Path]:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        Path(command[-1]).write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_output",
+        lambda _ffprobe, _output_path: OutputStats(
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            video_profile="High",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_profile="LC",
+            audio_sample_rate=48_000,
+        ),
+    )
+    return audio_path, image_path, output_path
+
+
+def test_successful_encode_prints_cached_update_notice_after_verification(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_verified_encode(monkeypatch, tmp_path)
+    stderr = StringIO()
+    events: list[str] = []
+
+    monkeypatch.setattr("yaatv.workflow.maybe_refresh_update_cache", lambda: events.append("refresh"))
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: events.append("notice") or "Update available: yaatv 0.7.1\nYou are running 0.7.0",
+    )
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        events.append("encode")
+        Path(command[-1]).write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    assert events == ["refresh", "encode", "notice"]
+    assert "Update available: yaatv 0.7.1\nYou are running 0.7.0" in stderr.getvalue()
+
+
+def test_successful_encode_without_cached_update_prints_no_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_verified_encode(monkeypatch, tmp_path)
+    stderr = StringIO()
+    monkeypatch.setattr("yaatv.workflow.cached_update_notice", lambda: None)
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    assert "Update available:" not in stderr.getvalue()
+
+
+def test_failed_encode_does_not_read_or_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", lambda *_args, **_kwargs: 1)
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("failed encode must not read the notice")),
+    )
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 1
+
+    assert "Update available:" not in stderr.getvalue()
+
+
+def test_failed_verification_does_not_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_verified_encode(monkeypatch, tmp_path)
+    stderr = StringIO()
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_output",
+        lambda *_args: (_ for _ in ()).throw(YaatvError("verification failed")),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("failed verification must not read the notice")),
+    )
+
+    with pytest.raises(YaatvError, match="verification failed"):
+        run(
+            [str(audio_path), str(image_path), "-o", str(output_path)],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert "Update available:" not in stderr.getvalue()
+
+
+def test_dry_run_does_not_refresh_or_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(
+        "yaatv.workflow.maybe_refresh_update_cache",
+        lambda: (_ for _ in ()).throw(AssertionError("dry run must not refresh updates")),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("dry run must not read the notice")),
+    )
+
+    assert run(
+        [str(audio_path), str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=StringIO(),
+    ) == 0
+
+
+@pytest.mark.parametrize("mode", ["--install", "--install-ffmpeg", "--scry"])
+def test_system_modes_do_not_refresh_or_print_update_notice(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    monkeypatch.setattr("yaatv.workflow.install_yaatv", lambda **_kwargs: None)
+    monkeypatch.setattr("yaatv.workflow.install_ffmpeg", lambda **_kwargs: None)
+    monkeypatch.setattr("yaatv.workflow.run_scry", lambda **_kwargs: 0)
+    monkeypatch.setattr(
+        "yaatv.workflow.maybe_refresh_update_cache",
+        lambda: (_ for _ in ()).throw(AssertionError("system mode must not refresh updates")),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.cached_update_notice",
+        lambda: (_ for _ in ()).throw(AssertionError("system mode must not read the notice")),
+    )
+
+    assert workflow_run(parse_args([mode]), stderr=StringIO()) == 0

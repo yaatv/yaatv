@@ -19,6 +19,8 @@ MP4_OUTPUT_PROFILE = OutputProfile(
     video_codec_args=(
         "-c:v",
         "libx264",
+        "-profile:v",
+        "high",
         "-preset",
         "slow",
         "-crf",
@@ -27,6 +29,7 @@ MP4_OUTPUT_PROFILE = OutputProfile(
         "yuv420p",
     ),
     faststart_args=("-movflags", "+faststart"),
+    audio_mode="aac_lc",
 )
 
 
@@ -37,14 +40,15 @@ PRORES_MOV_OUTPUT_PROFILE = OutputProfile(
         "-c:v",
         "prores_ks",
         "-profile:v",
-        "2",
+        "3",
         "-pix_fmt",
         "yuv422p10le",
         "-vendor",
         "apl0",
     ),
     output_format_args=("-f", "mov"),
-    large_file_note=".mov output uses ProRes 422; file sizes will be very large",
+    large_file_note=".mov output uses ProRes 422 HQ; file sizes will be very large",
+    audio_mode="pcm_s24le",
 )
 
 OUTPUT_PROFILES = {
@@ -74,7 +78,7 @@ def _video_tail(output_profile: OutputProfile) -> str:
 
 def _video_scale(width: int, height: int, *, aspect: str | None = None) -> str:
     aspect_option = f":force_original_aspect_ratio={aspect}" if aspect is not None else ""
-    return f"scale={width}:{height}{aspect_option}:out_color_matrix=bt709:out_range=tv"
+    return f"scale={width}:{height}:flags=lanczos{aspect_option}:out_color_matrix=bt709:out_range=tv"
 
 
 def _color_source_scale(width: int, height: int) -> str:
@@ -319,7 +323,7 @@ def build_ffmpeg_command(
             output_duration,
             output_profile,
             output_path,
-            include_shortest=True,
+            include_shortest=output_duration is None,
             metadata_args=metadata_args,
         ),
     ]

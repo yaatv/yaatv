@@ -158,7 +158,7 @@ def format_output_stats(stats: OutputStats) -> str:
     return ", ".join(
         (
             _resolution_label(stats),
-            f"{_video_codec_label(stats.video_codec)}/{stats.pixel_format or 'unknown'}",
+            f"{_video_codec_label(stats.video_codec, stats.video_profile)}/{stats.pixel_format or 'unknown'}",
             _color_label(stats),
             f"{_frame_rate_label(stats.frame_rate)} video",
             f"{_audio_codec_label(stats.audio_codec)} {_sample_rate_label(stats.audio_sample_rate)}",
@@ -216,6 +216,10 @@ def format_file_size(size: int) -> str:
     return f"{size / (1024 * 1024 * 1024):.1f} GB"
 
 
+def format_approximate_file_size(size: int) -> str:
+    return f"~{format_file_size(size)}"
+
+
 def format_duration(seconds: float) -> str:
     total_seconds = max(0, int(round(seconds)))
     hours, remainder = divmod(total_seconds, 3600)
@@ -231,16 +235,20 @@ def _resolution_label(stats: OutputStats) -> str:
     return f"{stats.width}x{stats.height}"
 
 
-def _video_codec_label(codec: str | None) -> str:
+def _video_codec_label(codec: str | None, profile: str | None = None) -> str:
     if codec == "h264":
-        return "H.264"
+        return f"H.264 {profile}" if profile else "H.264"
     if codec == "prores":
-        return "ProRes 422"
+        return "ProRes 422 HQ" if profile and profile.strip().casefold() == "hq" else "ProRes 422"
     return codec or "unknown"
 
 
 def _audio_codec_label(codec: str | None) -> str:
-    return "AAC" if codec == "aac" else codec or "unknown"
+    if codec == "aac":
+        return "AAC"
+    if codec == "pcm_s24le":
+        return "PCM 24-bit"
+    return codec or "unknown"
 
 
 def _color_label(stats: OutputStats) -> str:

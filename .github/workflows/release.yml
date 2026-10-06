@@ -79,18 +79,22 @@ jobs:
             package_name: yaatv-windows-x64
             executable_name: yaatv
             extension: .exe
+            single_file_name: yaatv-windows-x64.exe
           - os: ubuntu-latest
             package_name: yaatv-linux-x64
             executable_name: yaatv-linux
             extension: ""
+            single_file_name: yaatv-linux-x64
           - os: macos-15-intel
             package_name: yaatv-macos-x64
             executable_name: yaatv-macos
             extension: ""
+            single_file_name: yaatv-macos-x64
           - os: macos-15
             package_name: yaatv-macos-arm64
             executable_name: yaatv-macos-arm64
             extension: ""
+            single_file_name: yaatv-macos-arm64
 
     steps:
       - name: Check out repository
@@ -122,9 +126,14 @@ jobs:
           fi
 
       - name: Install dependencies
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install ".[dev]" pyinstaller
+          if ! python -m pip install -r requirements-release.txt; then
+            echo "Could not resolve the pinned release dependencies in requirements-release.txt." >&2
+            exit 1
+          fi
+          python -m pip install --no-deps --no-build-isolation .
+          python -m pip check
 
       - name: Smoke test CLI
         run: |
@@ -196,35 +205,83 @@ jobs:
           print("FFmpeg legal information: https://ffmpeg.org/legal.html")
           PY
 
+      - name: Prepare source notice
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          tag = os.environ.get("GITHUB_REF_NAME", "main")
+          source_notice = (
+              "yaatv Source Code Notice\n"
+              "========================\n\n"
+              "yaatv is free software licensed under the GNU General Public License version 2\n"
+              "or (at your option) any later version (GPL-2.0-or-later).\n\n"
+              "In accordance with the GNU General Public License, the exact corresponding source code\n"
+              "for this binary release (including source files, build workflows, and packaging scripts)\n"
+              "can be obtained from the yaatv repository:\n\n"
+              f"  https://github.com/yaatv/yaatv/tree/{tag}\n"
+              f"  https://github.com/yaatv/yaatv/releases/tag/{tag}\n\n"
+              "To clone the source repository:\n\n"
+              "  git clone https://github.com/yaatv/yaatv.git\n"
+              "  cd yaatv\n"
+              f"  git checkout {tag}\n\n"
+              "Full license text for yaatv is provided in LICENSE.\n"
+              "Licenses and copyright notices for bundled third-party dependencies are provided in THIRD_PARTY_LICENSES.txt.\n"
+          )
+          Path("SOURCE.txt").write_text(source_notice, encoding="utf-8")
+          PY
+
       - name: Build executable
         shell: bash
         run: |
           python scripts/generate_licenses.py -o THIRD_PARTY_LICENSES.txt
           python -c "from pathlib import Path; Path('yaatv_launcher.py').write_text('from yaatv.cli import main\nraise SystemExit(main())\n', encoding='utf-8')"
+          mkdir -p dist/onedir dist/onefile build/onedir build/onefile build/work/onedir build/work/onefile build/spec/onedir build/spec/onefile
           separator=":"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             separator=";"
           fi
-          pyinstaller_args=(
+          workspace_root="$(python -c 'from pathlib import Path; print(Path.cwd())')"
+          common_args=(
             --noconfirm
-            --onedir
-            --name "${{ matrix.executable_name }}${{ matrix.extension }}"
-            --add-data "THIRD_PARTY_LICENSES.txt${separator}."
-            --add-data "FFMPEG_BUILD_INFO.txt${separator}."
+            --add-data "$workspace_root/LICENSE${separator}."
+            --add-data "$workspace_root/SOURCE.txt${separator}."
+            --add-data "$workspace_root/THIRD_PARTY_LICENSES.txt${separator}."
+            --add-data "$workspace_root/FFMPEG_BUILD_INFO.txt${separator}."
             --exclude-module numpy
             yaatv_launcher.py
           )
-          pyinstaller "${pyinstaller_args[@]}"
+          printf 'pyinstaller-onedir\n' > build/onedir/yaatv-distribution.txt
+          pyinstaller \
+            --onedir \
+            --name "${{ matrix.executable_name }}${{ matrix.extension }}" \
+            --distpath dist/onedir \
+            --workpath build/work/onedir \
+            --specpath build/spec/onedir \
+            --add-data "$workspace_root/build/onedir/yaatv-distribution.txt${separator}." \
+            "${common_args[@]}"
+          printf 'pyinstaller-onefile\n' > build/onefile/yaatv-distribution.txt
+          pyinstaller \
+            --onefile \
+            --name "${{ matrix.single_file_name }}" \
+            --distpath dist/onefile \
+            --workpath build/work/onefile \
+            --specpath build/spec/onefile \
+            --add-data "$workspace_root/build/onefile/yaatv-distribution.txt${separator}." \
+            "${common_args[@]}"
 
       - name: Smoke test executable
         shell: bash
         run: |
           case "$RUNNER_OS" in
             Windows)
-              executable="dist/${{ matrix.executable_name }}.exe/${{ matrix.executable_name }}.exe"
+              executable="dist/onedir/${{ matrix.executable_name }}.exe/${{ matrix.executable_name }}.exe"
               ;;
             *)
-              executable="dist/${{ matrix.executable_name }}/${{ matrix.executable_name }}"
+              executable="dist/onedir/${{ matrix.executable_name }}/${{ matrix.executable_name }}"
               ;;
           esac
           python - <<'PY'
@@ -280,52 +337,53 @@ jobs:
             --resolution 1080p \
             --no-warn
 
+      - name: Smoke test onefile executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          executable="dist/onefile/${{ matrix.single_file_name }}"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then
+            chmod +x "$executable"
+          fi
+          "$executable" --version
+          "$executable" --help >/dev/null
+          "$executable" \
+            --audio smoke-audio.wav \
+            --image smoke-image.png \
+            --output onefile-smoke-output.mp4 \
+            --dry-run \
+            --no-warn
+
       - name: Assemble release package
         shell: bash
         run: |
           set -euo pipefail
           package_dir="package/${{ matrix.package_name }}"
-          mkdir -p "$package_dir" release-assets
-          case "$RUNNER_OS" in
-            Windows)
-              cp -a dist/${{ matrix.executable_name }}.exe/* "$package_dir/"
-              ;;
-            *)
-              cp -a dist/${{ matrix.executable_name }}/* "$package_dir/"
-              ;;
-          esac
-          python - <<'PY'
-          import os
-          from pathlib import Path
-
-          tag = os.environ.get("GITHUB_REF_NAME", "main")
-          source_notice = (
-              "yaatv Source Code Notice\n"
-              "========================\n\n"
-              "yaatv is free software licensed under the GNU General Public License version 2\n"
-              "or (at your option) any later version (GPL-2.0-or-later).\n\n"
-              "In accordance with the GNU General Public License, the exact corresponding source code\n"
-              "for this binary release (including source files, build workflows, and packaging scripts)\n"
-              "can be obtained from the yaatv repository:\n\n"
-              f"  https://github.com/yaatv/yaatv/tree/{tag}\n"
-              f"  https://github.com/yaatv/yaatv/releases/tag/{tag}\n\n"
-              "To clone the source repository:\n\n"
-              "  git clone https://github.com/yaatv/yaatv.git\n"
-              "  cd yaatv\n"
-              f"  git checkout {tag}\n\n"
-              "Full license text for yaatv is provided in LICENSE.\n"
-              "Licenses and copyright notices for bundled third-party dependencies are provided in THIRD_PARTY_LICENSES.txt.\n"
-          )
-          Path("SOURCE.txt").write_text(source_notice, encoding="utf-8")
-          PY
+          single_file_dir="package/${{ matrix.package_name }}-single-file"
+          mkdir -p "$package_dir" "$single_file_dir" release-assets build-metadata
+          onedir_root="dist/onedir/${{ matrix.executable_name }}${{ matrix.extension }}"
+          single_file="dist/onefile/${{ matrix.single_file_name }}"
+          cp -a "$onedir_root"/. "$package_dir/"
+          cp "$single_file" "$single_file_dir/"
+          cp "$single_file" "release-assets/${{ matrix.single_file_name }}"
           cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$package_dir/"
+          cp LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt "$single_file_dir/"
 
       - name: Generate SPDX SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           path: package/${{ matrix.package_name }}
           format: spdx-json
-          output-file: release-assets/${{ matrix.package_name }}.spdx.json
+          output-file: build-metadata/${{ matrix.package_name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - name: Generate single-file SPDX SBOM
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        with:
+          path: package/${{ matrix.package_name }}-single-file
+          format: spdx-json
+          output-file: build-metadata/${{ matrix.package_name }}-single-file.spdx.json
           upload-artifact: false
           upload-release-assets: false
 
@@ -350,16 +408,22 @@ jobs:
         run: |
           set -euo pipefail
           zip_file="release-assets/${{ matrix.package_name }}.zip"
-          sbom_file="release-assets/${{ matrix.package_name }}.spdx.json"
-          if [[ ! -s "$zip_file" ]]; then
-            echo "Error: Missing or empty release package: $zip_file" >&2
-            exit 1
-          fi
-          if [[ ! -s "$sbom_file" ]]; then
-            echo "Error: Missing or empty SBOM: $sbom_file" >&2
-            exit 1
-          fi
-          echo "Verified release package and SBOM exist: $zip_file, $sbom_file."
+          single_file="release-assets/${{ matrix.single_file_name }}"
+          zip_sbom="build-metadata/${{ matrix.package_name }}.spdx.json"
+          single_file_sbom="build-metadata/${{ matrix.package_name }}-single-file.spdx.json"
+          for artifact in "$zip_file" "$single_file" "$zip_sbom" "$single_file_sbom"; do
+            if [[ ! -s "$artifact" ]]; then
+              echo "Error: Missing or empty build output: $artifact" >&2
+              exit 1
+            fi
+          done
+          for notice in LICENSE THIRD_PARTY_LICENSES.txt FFMPEG_BUILD_INFO.txt SOURCE.txt; do
+            if [[ ! -s "package/${{ matrix.package_name }}/$notice" ]]; then
+              echo "Error: Missing license or source notice in portable package: $notice" >&2
+              exit 1
+            fi
+          done
+          echo "Verified runnable release files, portable-package notices, and SBOMs."
 
       - name: Upload release package artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -367,7 +431,14 @@ jobs:
           name: ${{ matrix.package_name }}
           path: |
             release-assets/${{ matrix.package_name }}.zip
-            release-assets/${{ matrix.package_name }}.spdx.json
+            release-assets/${{ matrix.single_file_name }}
+          if-no-files-found: error
+
+      - name: Upload SBOM workflow artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sbom-${{ matrix.package_name }}
+          path: build-metadata/*.spdx.json
           if-no-files-found: error
 
   release:
@@ -390,6 +461,8 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
+          # SBOM artifacts use a separate prefix and are not release downloads.
+          pattern: yaatv-*
           path: release-assets
           merge-multiple: true
 
@@ -397,40 +470,68 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          (cd release-assets && sha256sum *.zip *.spdx.json | sort -k2 > SHA256SUMS)
+          (cd release-assets && sha256sum *.zip *.exe yaatv-linux-x64 yaatv-macos-x64 yaatv-macos-arm64 | sort -k2 > SHA256SUMS)
 
-      - name: Sign checksums with PGP
+      - name: Sign and verify checksums with PGP
         env:
           PGP_PRIVATE_KEY: ${{ secrets.PGP_PRIVATE_KEY }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${PGP_PRIVATE_KEY:-}" ]; then
-            echo "Importing PGP private key..."
-            echo "$PGP_PRIVATE_KEY" | gpg --batch --import
-            if [ -n "${PGP_PASSPHRASE:-}" ]; then
-              gpg --batch --yes --pinentry-mode loopback --passphrase "$PGP_PASSPHRASE" --armor --detach-sign release-assets/SHA256SUMS
-            else
-              gpg --batch --yes --armor --detach-sign release-assets/SHA256SUMS
-            fi
-            echo "Created SHA256SUMS.asc signature."
-          else
-            echo "No PGP_PRIVATE_KEY secret configured; skipping detached PGP signature."
+
+          : "${PGP_PRIVATE_KEY:?Set the PGP_PRIVATE_KEY secret in the release environment.}"
+
+          gpg_home="$(mktemp -d "${RUNNER_TEMP:-/tmp}/yaatv-release-gpg.XXXXXX")"
+          chmod 700 "$gpg_home"
+          export GNUPGHOME="$gpg_home"
+          trap 'gpgconf --kill gpg-agent >/dev/null 2>&1 || true; rm -rf -- "$GNUPGHOME"' EXIT
+
+          printf '%s\n' "$PGP_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --import public.key
+
+          expected_fingerprint="$(gpg --batch --show-keys --with-colons public.key | awk -F: '$1 == "fpr" && !fingerprint { fingerprint = $10 } END { print fingerprint }')"
+          if [[ -z "$expected_fingerprint" ]]; then
+            echo "Error: public.key does not contain a readable PGP key." >&2
+            exit 1
           fi
+          if ! gpg --batch --list-secret-keys "$expected_fingerprint" >/dev/null 2>&1; then
+            echo "Error: PGP_PRIVATE_KEY does not match the key in public.key." >&2
+            exit 1
+          fi
+
+          if [[ -n "${PGP_PASSPHRASE:-}" ]]; then
+            printf '%s\n' "$PGP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+              --local-user "$expected_fingerprint" --armor --detach-sign \
+              --output release-assets/SHA256SUMS.asc release-assets/SHA256SUMS
+          else
+            gpg --batch --yes --local-user "$expected_fingerprint" --armor --detach-sign \
+              --output release-assets/SHA256SUMS.asc release-assets/SHA256SUMS
+          fi
+
+          gpg --batch --verify release-assets/SHA256SUMS.asc release-assets/SHA256SUMS
+          echo "Created and verified SHA256SUMS.asc with the key in public.key."
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: release-assets/*.zip
+          subject-path: release-assets/*
 
       - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" release-assets/* --clobber
+            while IFS= read -r asset; do
+              case "$asset" in
+                *.spdx.json|*-notices.zip)
+                  gh release delete-asset "$TAG_NAME" "$asset" --yes
+                  ;;
+              esac
+            done < <(gh release view "$TAG_NAME" --json assets --jq '.assets[].name')
           else
             gh release create "$TAG_NAME" release-assets/* --generate-notes --title "$TAG_NAME"
           fi

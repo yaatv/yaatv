@@ -69,7 +69,7 @@ def _video_tail(pixel_format: str) -> str:
 
 def _video_scale(width: int, height: int, *, aspect: str | None = None) -> str:
     aspect_option = f":force_original_aspect_ratio={aspect}" if aspect is not None else ""
-    return f"scale={width}:{height}{aspect_option}:out_color_matrix=bt709:out_range=tv"
+    return f"scale={width}:{height}:flags=lanczos{aspect_option}:out_color_matrix=bt709:out_range=tv"
 
 
 

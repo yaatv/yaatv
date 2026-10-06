@@ -9,6 +9,7 @@ from yaatv.models import AudioMetadata, YaatvError
 from yaatv.output import (
     MAX_FILENAME_LENGTH,
     default_output_path,
+    format_approximate_file_size,
     format_duration,
     format_file_details,
     format_file_size,
@@ -233,3 +234,6 @@ def test_format_file_size_uses_gb_at_exactly_one_gigabyte() -> None:
 
 def test_format_file_size_uses_gb_above_one_gigabyte() -> None:
     assert format_file_size(6 * 1024 * 1024 * 1024) == "6.0 GB"
+
+def test_format_approximate_file_size_marks_estimates_as_approximate() -> None:
+    assert format_approximate_file_size(7_301_000_000) == "~6.8 GB"

@@ -56,6 +56,9 @@ def test_output_profiles_define_supported_container_contracts() -> None:
     mov_profile = output_profile_for_path(Path("archive.mov"))
 
     assert mp4_profile.video_codec_args[:2] == ("-c:v", "libx264")
+    assert mp4_profile.video_codec_args[2:4] == ("-profile:v", "high")
+    assert mp4_profile.video_codec_args[4:6] == ("-preset", "slow")
+    assert mp4_profile.video_codec_args[6:8] == ("-crf", "16")
     assert mp4_profile.faststart_args == ("-movflags", "+faststart")
     assert mp4_profile.output_format_args == ()
     assert mp4_profile.pixel_format == "yuv420p"
@@ -64,6 +67,8 @@ def test_output_profiles_define_supported_container_contracts() -> None:
     assert mov_profile.faststart_args == ()
     assert mov_profile.output_format_args == ("-f", "mov")
     assert mov_profile.pixel_format == "yuv422p10le"
+    assert mp4_profile.audio_mode == "aac_lc"
+    assert mov_profile.audio_mode == "pcm_s24le"
 
 @pytest.mark.parametrize(
     ("name", "kwargs", "expected_prefix", "video_option", "expected_video", "expected_maps"),
@@ -143,6 +148,12 @@ def test_media_contract_command_profiles_preserve_branch_invariants(
         "overwrite": False,
     }
     options.update(kwargs)
+    if kwargs.get("is_prores"):
+        options["audio_plan"] = choose_audio_plan(
+            AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+            pad=0,
+            output_profile=output_profile_for_path(Path("out.mov")),
+        )
 
     command = build_ffmpeg_command(**options)  # type: ignore[arg-type]
 
@@ -164,7 +175,7 @@ def test_media_contract_command_profiles_preserve_branch_invariants(
     ("output_duration", "expected_shortest", "expected_duration"),
     [
         (None, True, None),
-        (145, True, "145"),
+        (145, False, "145"),
     ],
 )
 def test_media_contract_default_output_tail_order(
@@ -184,7 +195,11 @@ def test_media_contract_default_output_tail_order(
     )
 
     assert ("-shortest" in command) is expected_shortest
-    assert command.index("-shortest") < command.index("-movflags") < command.index("-vf")
+    if expected_shortest:
+        assert command.index("-shortest") < command.index("-movflags") < command.index("-vf")
+    else:
+        assert "-shortest" not in command
+        assert command.index("-movflags") < command.index("-vf")
     if expected_duration is None:
         assert "-t" not in command
     else:
@@ -211,12 +226,14 @@ def test_transcode_command_uses_required_youtube_settings() -> None:
     assert command[command.index("-map") + 1] == "0:v:0"
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "1:a:0"
     assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-profile:v") + 1] == "high"
     assert command[command.index("-preset") + 1] == "slow"
     assert command[command.index("-crf") + 1] == "16"
     assert command[command.index("-pix_fmt") + 1] == "yuv420p"
     assert command[command.index("-color_range") + 1] == "tv"
     assert command[command.index("-c:a") + 1] == "aac"
     assert command[command.index("-b:a") + 1] == "384k"
+    assert command[command.index("-profile:a") + 1] == "aac_low"
     assert command[command.index("-ar") + 1] == "48000"
     assert command[command.index("-af") + 1] == "apad=pad_dur=2"
     assert "-shortest" in command
@@ -406,6 +423,7 @@ def test_color_only_command_uses_generated_video_stream() -> None:
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
+    assert "flags=lanczos" not in command[command.index("-vf") + 1]
     assert command[command.index("-map") + 1] == "1:v:0"
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "0:a:0"
     assert command[command.index("-t") + 1] == "30"
@@ -447,7 +465,7 @@ def test_command_uses_duration_cap_when_audio_duration_is_known() -> None:
         output_duration=145,
     )
 
-    assert "-shortest" in command
+    assert "-shortest" not in command
     assert command[command.index("-t") + 1] == "145"
     assert command.index("-t") < len(command) - 1
 
@@ -455,6 +473,7 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
         pad=0,
+        output_profile=output_profile_for_path(Path("out.mov")),
     )
 
     command = build_ffmpeg_command(
@@ -469,9 +488,13 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
     )
 
     assert command[command.index("-c:v") + 1] == "prores_ks"
-    assert command[command.index("-profile:v") + 1] == "2"
+    assert command[command.index("-profile:v") + 1] == "3"
     assert command[command.index("-pix_fmt") + 1] == "yuv422p10le"
     assert command[command.index("-vendor") + 1] == "apl0"
+    assert command[command.index("-c:a") + 1] == "pcm_s24le"
+    assert command[command.index("-ar") + 1] == "48000"
+    assert "-b:a" not in command
+    assert "-profile:a" not in command
     assert command[command.index("-f") + 1] == "mov"
     assert "-movflags" not in command
     assert command[command.index("-vf") + 1] == (
@@ -485,6 +508,7 @@ def test_prores_background_image_uses_yuv422_overlay() -> None:
     plan = choose_audio_plan(
         AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
         pad=0,
+        output_profile=output_profile_for_path(Path("out.mov")),
     )
 
     command = build_ffmpeg_command(
@@ -530,9 +554,30 @@ def test_h264_command_unchanged_without_is_prores() -> None:
     )
 
     assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-profile:v") + 1] == "high"
     assert command[command.index("-pix_fmt") + 1] == "yuv420p"
     assert command[command.index("-movflags") + 1] == "+faststart"
     assert "-f" not in command or command[command.index("-f") + 1] != "mov"
+
+@pytest.mark.parametrize("mode", ["cover", "background", "blurred"])
+def test_user_image_scaling_uses_lanczos(mode: str) -> None:
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=_transcode_plan(),
+        overwrite=False,
+        bg_image_path=Path("background.jpg") if mode == "background" else None,
+        bg_blur=mode == "blurred",
+    )
+
+    filter_option = "-filter_complex" if mode != "cover" else "-vf"
+    filter_graph = command[command.index(filter_option) + 1]
+    assert "flags=lanczos" in filter_graph
+    if mode in {"background", "blurred"}:
+        assert filter_graph.count("flags=lanczos") == 2
 
 def test_build_output_metadata_args_with_none_or_empty_metadata() -> None:
     args_none = build_output_metadata_args(None)
@@ -689,13 +734,18 @@ def test_build_ffmpeg_command_includes_metadata_in_all_modes() -> None:
     assert "title=Song Title" in cmd_blur
     assert f"comment={YAATV_PROVENANCE}" in cmd_blur
 
+    prores_plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+        output_profile=output_profile_for_path(Path("out.mov")),
+    )
     cmd_prores = build_ffmpeg_command(
         ffmpeg="ffmpeg",
         audio_path=Path("track.flac"),
         image_path=Path("cover.jpg"),
         output_path=Path("out.mov"),
         target_size=(1920, 1080),
-        audio_plan=plan,
+        audio_plan=prores_plan,
         overwrite=False,
         is_prores=True,
         metadata=metadata,

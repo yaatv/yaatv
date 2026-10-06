@@ -10,7 +10,15 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from ..models import FFmpegResult, OutputStats, YaatvError, _float_or_none, _int_or_none, _string_or_none
+from ..models import (
+    AudioStreamInfo,
+    FFmpegResult,
+    OutputStats,
+    YaatvError,
+    _float_or_none,
+    _int_or_none,
+    _string_or_none,
+)
 from ..output import _frame_rate_label, _resolution_label, _sample_rate_label
 from ..planning import COPY_AAC_SAMPLE_RATE
 from .tools import FFMPEG_DOWNLOAD_PAGE
@@ -18,6 +26,7 @@ from .tools import FFMPEG_DOWNLOAD_PAGE
 FFMPEG_ERROR_TAIL_LINES = 20
 # Output verification reads metadata, not the full encoded media.
 FFPROBE_OUTPUT_TIMEOUT_SECONDS = 30
+FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS = 10
 FFMPEG_PROGRESS_KEYS = {
     "bitrate",
     "drop_frames",
@@ -166,6 +175,8 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         data = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise YaatvError(f"Could not parse FFprobe output for: {output_path}") from exc
+    if not isinstance(data, dict):
+        raise YaatvError(f"Could not parse FFprobe output for: {output_path}")
 
     streams = data.get("streams", [])
     if not isinstance(streams, list):
@@ -175,6 +186,11 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         output_format = {}
     video = _first_stream(streams, "video")
     audio = _first_stream(streams, "audio")
+    audio_bits_per_sample = _int_or_none(audio.get("bits_per_raw_sample"))
+    if audio_bits_per_sample is None or audio_bits_per_sample <= 0:
+        audio_bits_per_sample = _int_or_none(audio.get("bits_per_sample"))
+    if audio_bits_per_sample is not None and audio_bits_per_sample <= 0:
+        audio_bits_per_sample = None
 
     return OutputStats(
         width=_int_or_none(video.get("width")),
@@ -189,6 +205,62 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         audio_codec=_string_or_none(audio.get("codec_name")),
         audio_sample_rate=_int_or_none(audio.get("sample_rate")),
         duration=_float_or_none(output_format.get("duration")),
+        video_profile=_string_or_none(video.get("profile")),
+        audio_profile=_string_or_none(audio.get("profile")),
+        audio_bits_per_sample=audio_bits_per_sample,
+    )
+
+
+def probe_audio_stream(ffprobe: str, audio_path: Path) -> AudioStreamInfo | None:
+    """Read optional channel/profile metadata without making encoding depend on it."""
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-select_streams",
+        "a:0",
+        "-show_streams",
+        "-show_entries",
+        "stream=codec_name,profile,channels,channel_layout",
+        str(audio_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS,
+        )  # nosec B603
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    if completed.returncode != 0:
+        return None
+    try:
+        data = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    streams = data.get("streams", [])
+    if not isinstance(streams, list):
+        return None
+    audio = _first_stream(streams, "audio")
+    if not audio:
+        return None
+    channels = _int_or_none(audio.get("channels"))
+    if channels is not None and channels <= 0:
+        channels = None
+    return AudioStreamInfo(
+        codec=_string_or_none(audio.get("codec_name")),
+        profile=_string_or_none(audio.get("profile")),
+        channels=channels,
+        channel_layout=_string_or_none(audio.get("channel_layout")),
     )
 
 
@@ -202,11 +274,15 @@ def verify_output_stats(stats: OutputStats, target_size: tuple[int, int], is_pro
     if is_prores:
         if stats.video_codec != "prores":
             failures.append(f"expected ProRes video, got {stats.video_codec or 'unknown'}")
+        elif not _profile_matches(stats.video_profile, "hq"):
+            failures.append(f"expected ProRes HQ profile, got {stats.video_profile or 'unknown'}")
         if stats.pixel_format != "yuv422p10le":
             failures.append(f"expected yuv422p10le video, got {stats.pixel_format or 'unknown'}")
     else:
         if stats.video_codec != "h264":
             failures.append(f"expected H.264 video, got {stats.video_codec or 'unknown'}")
+        elif not _profile_matches(stats.video_profile, "high"):
+            failures.append(f"expected H.264 High profile, got {stats.video_profile or 'unknown'}")
         if stats.pixel_format != "yuv420p":
             failures.append(f"expected yuv420p video, got {stats.pixel_format or 'unknown'}")
     # Some FFprobe builds do not report color_range for ProRes MOV.
@@ -220,8 +296,18 @@ def verify_output_stats(stats: OutputStats, target_size: tuple[int, int], is_pro
         failures.append(f"expected bt709 primaries, got {stats.color_primaries or 'unknown'}")
     if stats.frame_rate is None or abs(stats.frame_rate - 1.0) > 0.01:
         failures.append(f"expected 1fps video, got {_frame_rate_label(stats.frame_rate)}")
-    if stats.audio_codec != "aac":
-        failures.append(f"expected AAC audio, got {stats.audio_codec or 'unknown'}")
+    if is_prores:
+        if stats.audio_codec != "pcm_s24le":
+            failures.append(f"expected pcm_s24le audio, got {stats.audio_codec or 'unknown'}")
+        if stats.audio_bits_per_sample is not None and stats.audio_bits_per_sample != 24:
+            failures.append(
+                f"expected 24-bit PCM audio, got {stats.audio_bits_per_sample}-bit"
+            )
+    else:
+        if stats.audio_codec != "aac":
+            failures.append(f"expected AAC audio, got {stats.audio_codec or 'unknown'}")
+        if stats.audio_profile is not None and not _aac_lc_profile(stats.audio_profile):
+            failures.append(f"expected AAC-LC profile, got {stats.audio_profile}")
     if stats.audio_sample_rate != COPY_AAC_SAMPLE_RATE:
         failures.append(
             f"expected 48kHz audio, got {_sample_rate_label(stats.audio_sample_rate)}"
@@ -229,6 +315,14 @@ def verify_output_stats(stats: OutputStats, target_size: tuple[int, int], is_pro
 
     if failures:
         raise YaatvError("Output verification failed: " + "; ".join(failures))
+
+
+def _profile_matches(actual: str | None, expected: str) -> bool:
+    return actual is not None and actual.strip().casefold() == expected
+
+
+def _aac_lc_profile(profile: str) -> bool:
+    return profile.strip().casefold() in {"lc", "aac lc", "aac-lc"}
 
 
 def _first_stream(streams: Iterable[object], codec_type: str) -> dict[str, object]:

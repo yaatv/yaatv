@@ -15,10 +15,29 @@ def test_parse_args_accepts_positional_files() -> None:
     assert args.resolution == "4k"
     assert args.aspect == "square"
 
+def test_parse_args_accepts_8k_and_keeps_1080p_default() -> None:
+    assert parse_args(["-a", "track.wav", "-i", "cover.png", "--resolution", "8k"]).resolution == "8k"
+    assert parse_args(["-a", "track.wav", "-i", "cover.png"]).resolution == "1080p"
+
+def test_parse_args_rejects_unsupported_resolution(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.png", "--resolution", "16k"])
+
+    assert "invalid choice: '16k'" in capsys.readouterr().err
+
 def test_parse_args_accepts_scry_without_files() -> None:
     args = parse_args(["--scry"])
 
     assert args.scry is True
+    assert args.audio is None
+    assert args.image is None
+
+def test_parse_args_accepts_install_without_files() -> None:
+    args = parse_args(["--install"])
+
+    assert args.install is True
+    assert args.install_ffmpeg is False
+    assert args.scry is False
     assert args.audio is None
     assert args.image is None
 
@@ -44,6 +63,26 @@ def test_parse_args_rejects_scry_with_install_ffmpeg(capsys: pytest.CaptureFixtu
     err = capsys.readouterr().err
     assert "--install-ffmpeg and --scry are mutually exclusive; use one or the other." in err
 
+@pytest.mark.parametrize("argv", [["--install", "--install-ffmpeg"], ["--install", "--scry"]])
+def test_parse_args_rejects_install_with_another_system_mode(
+    argv: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(argv)
+
+    assert "mutually exclusive" in capsys.readouterr().err
+
+@pytest.mark.parametrize("argv", [["--install", "-a", "track.flac"], ["--install", "track.flac", "cover.jpg"]])
+def test_parse_args_rejects_install_with_encoding_inputs(
+    argv: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(argv)
+
+    assert "System options cannot be combined with media inputs or encoding options." in capsys.readouterr().err
+
 def test_parse_args_accepts_open_folder() -> None:
     args = parse_args(["-a", "audio.flac", "-i", "cover.jpg", "--open-folder"])
 
@@ -58,6 +97,8 @@ def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
     assert "examples:" in help_text
     assert "yaatv audio.flac cover.jpg" in help_text
     assert "yaatv --scry" in help_text
+    assert "1080p, 1440p, 4k, or 8k" in help_text
+    assert "--resolution 8k" in help_text
 
 def test_help_mentions_scry_for_audio_and_image_options(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -66,9 +107,12 @@ def test_help_mentions_scry_for_audio_and_image_options(capsys: pytest.CaptureFi
     assert exc_info.value.code == 0
     help_text = capsys.readouterr().out.replace("\n", " ")
     collapsed = " ".join(help_text.split()).replace("- ", "-")
-    assert "Path to audio file (required unless using --install-ffmpeg, --scry, or positional files)" in collapsed
     assert (
-        "Path to cover image (required unless using --install-ffmpeg, "
+        "Path to audio file (required unless using --install, --install-ffmpeg, --scry, or positional files)"
+        in collapsed
+    )
+    assert (
+        "Path to cover image (required unless using --install, --install-ffmpeg, "
         "--scry, positional files, or color-only output)"
     ) in collapsed
 
@@ -182,3 +226,4 @@ def test_parse_args_returns_config_with_representative_fields() -> None:
     assert args.pad == 2.5
     assert args.output_dir == Path("renders")
     assert args.verbose
+    assert not args.install
