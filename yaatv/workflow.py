@@ -46,11 +46,6 @@ from .planning import (
 from .self_install import install_yaatv
 from .update import cached_update_notice, maybe_refresh_update_cache
 
-# ---------------------------------------------------------------------------
-# 4. Input classification and tool discovery
-# Canvas presets, drag-and-drop file detection, and finding FFmpeg/FFprobe.
-# ---------------------------------------------------------------------------
-
 PRORES_LARGE_OUTPUT_THRESHOLD_BYTES = 2 * 1024**3
 PRORES_DISK_RESERVE_FRACTION = 0.10
 PRORES_MINIMUM_DISK_RESERVE_BYTES = 512 * 1024**2
@@ -122,15 +117,6 @@ def resolve_ffmpeg_tools(
             find_ffmpeg(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
             find_ffprobe(app_bin_dir=app_bin_dir, packaged_paths=packaged_paths),
         )
-
-
-
-
-
-# ---------------------------------------------------------------------------
-# 12. Main workflow orchestration and entrypoints
-# Top-level execution flow, drag-and-drop support, and console entrypoints.
-# ---------------------------------------------------------------------------
 
 
 def run(

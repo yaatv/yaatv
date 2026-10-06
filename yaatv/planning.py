@@ -109,12 +109,6 @@ def estimate_prores_output_size(
     return math.ceil(estimated_bytes)
 
 
-# ---------------------------------------------------------------------------
-# 8. Audio planning, quality warnings, and output naming
-# Codec inspection, bitrate warnings, and sanitized output path generation.
-# ---------------------------------------------------------------------------
-
-
 def choose_audio_plan(
     metadata: AudioMetadata,
     pad: float,

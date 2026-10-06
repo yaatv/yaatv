@@ -13,11 +13,6 @@ from . import __version__
 from .models import Config
 from .planning import DEFAULT_ASPECT, DEFAULT_BACKGROUND_COLOR, OUTPUT_SIZES, RESOLUTIONS
 
-# ---------------------------------------------------------------------------
-# 3. CLI argument parsing and validation
-# Argument parsing, option groups, and custom type validators.
-# ---------------------------------------------------------------------------
-
 
 def pad_seconds(value: str) -> float:
     try:

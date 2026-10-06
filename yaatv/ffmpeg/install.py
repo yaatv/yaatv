@@ -141,12 +141,6 @@ MACOS_ARM64_FFMPEG_SOURCES: tuple[UnixFFmpegSource, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# 6. Managed FFmpeg installation (--install-ffmpeg)
-# Platform-specific download, checksum verification, extraction, and rollback.
-# ---------------------------------------------------------------------------
-
-
 def install_ffmpeg(
     *,
     install_dir: Path | None = None,

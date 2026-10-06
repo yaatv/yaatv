@@ -42,11 +42,6 @@ FFMPEG_PROGRESS_KEYS = {
     "total_size",
 }
 
-# ---------------------------------------------------------------------------
-# 10. Subprocess execution and output verification
-# Executing FFmpeg, streaming progress, and verifying encoded outputs.
-# ---------------------------------------------------------------------------
-
 
 def quote_command(command: Sequence[str]) -> str:
     parts = [str(part) for part in command]
