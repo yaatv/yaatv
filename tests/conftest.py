@@ -17,3 +17,4 @@ if str(REPO_ROOT) not in sys.path:
 def disable_automatic_update_network(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("yaatv.workflow.maybe_refresh_update_cache", lambda: False)
     monkeypatch.setattr("yaatv.workflow.cached_update_notice", lambda: None)
+    monkeypatch.setattr("yaatv.workflow.probe_audio_stream", lambda *_args: None)

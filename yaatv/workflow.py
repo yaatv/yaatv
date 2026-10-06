@@ -5,13 +5,14 @@ import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
+from dataclasses import replace
 from pathlib import Path
 from typing import TextIO
 
 from .diagnostics import run_scry
 from .ffmpeg.command import PRORES_MOV_OUTPUT_PROFILE, build_ffmpeg_command, output_profile_for_path
 from .ffmpeg.install import install_ffmpeg
-from .ffmpeg.runner import probe_output, quote_command, run_ffmpeg, verify_output_stats
+from .ffmpeg.runner import probe_audio_stream, probe_output, quote_command, run_ffmpeg, verify_output_stats
 from .ffmpeg.tools import find_ffmpeg, find_ffprobe, supports_app_managed_ffmpeg_install
 from .media import (
     classify_files,
@@ -31,7 +32,7 @@ from .output import (
     print_output_summary,
     resolve_output_path,
 )
-from .planning import choose_audio_plan, output_size, quality_warnings
+from .planning import audio_plan_warnings, choose_audio_plan, output_size, quality_warnings
 from .self_install import install_yaatv
 from .update import cached_update_notice, maybe_refresh_update_cache
 
@@ -129,7 +130,10 @@ def run(
             ffmpeg = find_ffmpeg()
         except YaatvError:
             ffmpeg = "ffmpeg"
-        ffprobe = None
+        try:
+            ffprobe = find_ffprobe()
+        except YaatvError:
+            ffprobe = None
     else:
         ffmpeg, ffprobe = resolve_ffmpeg_tools(stdin=stdin, stderr=stderr)
     with ExitStack() as stack:
@@ -150,24 +154,38 @@ def run(
             audio_path.parent if args.files and args.output is None and args.output_dir is None else args.output_dir
         )
         output_path = resolve_output_path(audio_path, metadata, args.output, implicit_output_dir)
+        output_profile = output_profile_for_path(output_path)
+        is_prores = output_profile is PRORES_MOV_OUTPUT_PROFILE
         print(f"Output: {output_path}", file=stderr)
         if args.dry_run:
             # Dry-run never writes the destination, so do not prompt or require --overwrite.
             overwrite = args.overwrite
         else:
             overwrite = confirm_overwrite(output_path, stdin=stdin, stderr=stderr, overwrite=args.overwrite)
-        audio_plan = choose_audio_plan(metadata, args.pad)
+        source_audio = probe_audio_stream(ffprobe, audio_path) if ffprobe is not None else None
+        if source_audio is not None:
+            metadata = replace(
+                metadata,
+                channels=source_audio.channels if source_audio.channels is not None else metadata.channels,
+                channel_layout=(
+                    source_audio.channel_layout
+                    if source_audio.channel_layout is not None
+                    else metadata.channel_layout
+                ),
+                aac_profile=(
+                    source_audio.profile
+                    if source_audio.codec == "aac" and source_audio.profile is not None
+                    else metadata.aac_profile
+                ),
+            )
+        audio_plan = choose_audio_plan(metadata, args.pad, output_profile)
         output_duration = metadata.duration + args.pad if metadata.duration is not None else None
-
-        output_profile = output_profile_for_path(output_path)
-        is_prores = output_profile is PRORES_MOV_OUTPUT_PROFILE
 
         if not args.no_warn:
             warnings = input_format_warnings(audio_path, image_path, bg_image_path)
             warnings.extend(quality_warnings(metadata, image_size, target_size))
-            for warning in [
-                *warnings,
-            ]:
+            warnings.extend(audio_plan_warnings(metadata, output_profile))
+            for warning in warnings:
                 print(f"warning: {warning}", file=stderr)
         if output_profile.large_file_note:
             print(f"note: {output_profile.large_file_note}", file=stderr)

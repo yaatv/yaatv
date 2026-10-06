@@ -6,6 +6,8 @@ import pytest
 
 from yaatv.ffmpeg.runner import (
     FFMPEG_ERROR_TAIL_LINES,
+    FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS,
+    probe_audio_stream,
     probe_output,
     quote_command,
     run_ffmpeg,
@@ -214,6 +216,70 @@ def test_probe_output_reports_invalid_json(monkeypatch: pytest.MonkeyPatch) -> N
 
     with pytest.raises(YaatvError, match="Could not parse FFprobe output"):
         probe_output("ffprobe", Path("out.mp4"))
+
+def test_probe_audio_stream_extracts_channel_layout_and_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["command"] = command
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=(
+                '{"streams":[{"codec_type":"audio","codec_name":"aac","profile":"LC",'
+                '"channels":6,"channel_layout":"5.1"}]}'
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    stream = probe_audio_stream("ffprobe", Path("surround.m4a"))
+
+    assert stream is not None
+    assert (stream.codec, stream.profile, stream.channels, stream.channel_layout) == (
+        "aac", "LC", 6, "5.1"
+    )
+    assert captured["command"] == [
+        "ffprobe",
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-select_streams",
+        "a:0",
+        "-show_streams",
+        "-show_entries",
+        "stream=codec_name,profile,channels,channel_layout",
+        "surround.m4a",
+    ]
+    assert captured["timeout"] == FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        FileNotFoundError("ffprobe unavailable"),
+        subprocess.TimeoutExpired(["ffprobe"], FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS),
+    ],
+)
+def test_probe_audio_stream_falls_back_when_optional_probe_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> object:
+        raise failure
+
+    monkeypatch.setattr("subprocess.run", fail)
+
+    assert probe_audio_stream("ffprobe", Path("track.flac")) is None
+
+def test_probe_audio_stream_ignores_unexpected_json_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "subprocess.run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(command, 0, stdout="[]", stderr=""),
+    )
+
+    assert probe_audio_stream("ffprobe", Path("track.flac")) is None
 
 def test_verify_prores_output_stats() -> None:
     stats = OutputStats(

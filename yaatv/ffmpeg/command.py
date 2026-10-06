@@ -29,6 +29,7 @@ MP4_OUTPUT_PROFILE = OutputProfile(
         "yuv420p",
     ),
     faststart_args=("-movflags", "+faststart"),
+    audio_mode="aac_lc",
 )
 
 
@@ -47,6 +48,7 @@ PRORES_MOV_OUTPUT_PROFILE = OutputProfile(
     ),
     output_format_args=("-f", "mov"),
     large_file_note=".mov output uses ProRes 422 HQ; file sizes will be very large",
+    audio_mode="pcm_s24le",
 )
 
 OUTPUT_PROFILES = {
@@ -321,7 +323,7 @@ def build_ffmpeg_command(
             output_duration,
             output_profile,
             output_path,
-            include_shortest=True,
+            include_shortest=output_duration is None,
             metadata_args=metadata_args,
         ),
     ]

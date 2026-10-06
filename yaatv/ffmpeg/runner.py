@@ -10,7 +10,15 @@ from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from ..models import FFmpegResult, OutputStats, YaatvError, _float_or_none, _int_or_none, _string_or_none
+from ..models import (
+    AudioStreamInfo,
+    FFmpegResult,
+    OutputStats,
+    YaatvError,
+    _float_or_none,
+    _int_or_none,
+    _string_or_none,
+)
 from ..output import _frame_rate_label, _resolution_label, _sample_rate_label
 from ..planning import COPY_AAC_SAMPLE_RATE
 from .tools import FFMPEG_DOWNLOAD_PAGE
@@ -18,6 +26,7 @@ from .tools import FFMPEG_DOWNLOAD_PAGE
 FFMPEG_ERROR_TAIL_LINES = 20
 # Output verification reads metadata, not the full encoded media.
 FFPROBE_OUTPUT_TIMEOUT_SECONDS = 30
+FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS = 10
 FFMPEG_PROGRESS_KEYS = {
     "bitrate",
     "drop_frames",
@@ -189,6 +198,59 @@ def probe_output(ffprobe: str, output_path: Path) -> OutputStats:
         audio_codec=_string_or_none(audio.get("codec_name")),
         audio_sample_rate=_int_or_none(audio.get("sample_rate")),
         duration=_float_or_none(output_format.get("duration")),
+    )
+
+
+def probe_audio_stream(ffprobe: str, audio_path: Path) -> AudioStreamInfo | None:
+    """Read optional channel/profile metadata without making encoding depend on it."""
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-print_format",
+        "json",
+        "-select_streams",
+        "a:0",
+        "-show_streams",
+        "-show_entries",
+        "stream=codec_name,profile,channels,channel_layout",
+        str(audio_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=FFPROBE_INPUT_AUDIO_TIMEOUT_SECONDS,
+        )  # nosec B603
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+    if completed.returncode != 0:
+        return None
+    try:
+        data = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    streams = data.get("streams", [])
+    if not isinstance(streams, list):
+        return None
+    audio = _first_stream(streams, "audio")
+    if not audio:
+        return None
+    channels = _int_or_none(audio.get("channels"))
+    if channels is not None and channels <= 0:
+        channels = None
+    return AudioStreamInfo(
+        codec=_string_or_none(audio.get("codec_name")),
+        profile=_string_or_none(audio.get("profile")),
+        channels=channels,
+        channel_layout=_string_or_none(audio.get("channel_layout")),
     )
 
 

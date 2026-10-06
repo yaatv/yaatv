@@ -11,7 +11,7 @@ from tests._support import (
     _video_scale,
 )
 from yaatv.cli import run
-from yaatv.models import AudioMetadata, FFmpegResult, OutputStats, YaatvError
+from yaatv.models import AudioMetadata, AudioStreamInfo, FFmpegResult, OutputStats, YaatvError
 from yaatv.options import parse_args
 from yaatv.output import confirm_overwrite
 from yaatv.workflow import run as workflow_run
@@ -55,6 +55,69 @@ def test_run_dry_run_prints_command_without_encoding(
     assert "ffmpeg" in stderr.getvalue()
     assert str(output_path) in stderr.getvalue()
     assert not output_path.exists()
+
+def test_run_dry_run_mov_uses_the_profile_specific_pcm_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "master.mov"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None, duration=12.1
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+
+    stderr = StringIO()
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    command = stderr.getvalue()
+    assert "-c:a pcm_s24le" in command
+    assert "-ar 48000" in command
+    assert "-c:a aac" not in command
+
+def test_dry_run_uses_optional_ffprobe_for_multichannel_planning(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "surround.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "upload.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", lambda: "ffprobe")
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_audio_stream",
+        lambda *_args: AudioStreamInfo(codec="flac", profile=None, channels=6, channel_layout="5.1"),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=96_000, artist=None, title=None, channels=6
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+
+    stderr = StringIO()
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path), "--dry-run"],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    command = stderr.getvalue()
+    assert "-b:a 512k" in command
+    assert "unknown layout" not in command
 
 
 
@@ -162,6 +225,7 @@ def test_run_dry_run_does_not_require_ffmpeg_discovery(
 
     monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", resolve_tools)
     monkeypatch.setattr("yaatv.workflow.find_ffmpeg", find_tool)
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", find_tool)
     monkeypatch.setattr(
         "yaatv.workflow.read_audio_metadata",
         lambda _path: AudioMetadata(
@@ -374,6 +438,69 @@ def test_run_quick_mode_encodes_with_custom_output_and_open_folder(
     assert "Encoding..." in stderr.getvalue()
     assert "Verifying..." in stderr.getvalue()
     assert f"Created {output_path}" in stderr.getvalue()
+
+def test_multichannel_probe_selects_the_5_1_aac_plan(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "surround.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "upload.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=96_000,
+            artist=None,
+            title=None,
+            duration=1.0,
+            channels=6,
+        ),
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_audio_stream",
+        lambda *_args: AudioStreamInfo(codec="flac", profile=None, channels=6, channel_layout="5.1"),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.probe_output",
+        lambda *_args: OutputStats(
+            width=1920,
+            height=1080,
+            video_codec="h264",
+            pixel_format="yuv420p",
+            color_range="tv",
+            color_space="bt709",
+            color_transfer="bt709",
+            color_primaries="bt709",
+            frame_rate=1.0,
+            audio_codec="aac",
+            audio_sample_rate=48_000,
+        ),
+    )
+    captured: dict[str, list[str]] = {}
+
+    def encode(command: list[str], **_kwargs: object) -> int:
+        captured["command"] = command
+        output_path.write_bytes(b"video")
+        return 0
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+
+    assert run(
+        ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path)],
+        stdin=StringIO(),
+        stderr=StringIO(),
+    ) == 0
+
+    command = captured["command"]
+    assert command[command.index("-b:a") + 1] == "512k"
+    assert command[command.index("-ar") + 1] == "48000"
+    assert "-ac" not in command
 
 
 

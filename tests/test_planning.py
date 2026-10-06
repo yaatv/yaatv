@@ -1,7 +1,11 @@
+from pathlib import Path
+
 import pytest
 
+from yaatv.ffmpeg.command import PRORES_MOV_OUTPUT_PROFILE, output_profile_for_path
 from yaatv.models import AudioMetadata
 from yaatv.planning import (
+    audio_plan_warnings,
     choose_audio_plan,
     is_high_quality_aac,
     is_lossless_codec,
@@ -17,6 +21,7 @@ def test_high_quality_aac_is_copied() -> None:
         sample_rate=48_000,
         artist="Artist",
         title="Title",
+        channels=2,
     )
 
     assert is_high_quality_aac(metadata)
@@ -35,17 +40,127 @@ def test_pad_transcodes_high_quality_aac(pad: float) -> None:
     plan = choose_audio_plan(metadata, pad=pad)
 
     assert plan.copy is False
-    assert plan.codec_args == ("-c:a", "aac", "-b:a", "384k", "-ar", "48000")
+    assert plan.codec_args == (
+        "-c:a", "aac", "-b:a", "384k", "-profile:a", "aac_low", "-ar", "48000"
+    )
     assert plan.filter_args == ("-af", f"apad=pad_dur={pad:g}")
 
 def test_high_quality_aac_without_padding_keeps_copy_mode() -> None:
-    metadata = AudioMetadata(codec="aac", bitrate=384_000, sample_rate=48_000, artist=None, title=None)
+    metadata = AudioMetadata(
+        codec="mp4a.40.2", bitrate=384_000, sample_rate=48_000, artist=None, title=None, channels=2
+    )
 
     plan = choose_audio_plan(metadata, pad=0)
 
     assert plan.copy is True
     assert plan.codec_args == ("-c:a", "copy")
     assert plan.filter_args == ()
+
+@pytest.mark.parametrize("codec", ["mp4a.40.5", "mp4a.40.29", "he-aac", "aac", "AAC LC+SBR"])
+def test_aac_family_is_not_copied_without_confident_lc_profile(codec: str) -> None:
+    metadata = AudioMetadata(
+        codec=codec,
+        bitrate=500_000,
+        sample_rate=48_000,
+        artist=None,
+        title=None,
+        channels=2,
+    )
+
+    assert not is_high_quality_aac(metadata)
+    assert not choose_audio_plan(metadata, pad=0).copy
+
+def test_generic_aac_with_explicit_lc_profile_can_be_copied() -> None:
+    metadata = AudioMetadata(
+        codec="aac",
+        bitrate=320_000,
+        sample_rate=48_000,
+        artist=None,
+        title=None,
+        channels=2,
+        aac_profile="LC",
+    )
+
+    assert is_high_quality_aac(metadata)
+    assert choose_audio_plan(metadata, pad=0).copy
+
+def test_aac_copy_requires_confident_channel_capacity() -> None:
+    metadata = AudioMetadata(
+        codec="mp4a.40.2",
+        bitrate=384_000,
+        sample_rate=48_000,
+        artist=None,
+        title=None,
+    )
+
+    assert not is_high_quality_aac(metadata)
+    assert not choose_audio_plan(metadata, pad=0).copy
+
+@pytest.mark.parametrize(
+    ("channels", "layout", "expected_bitrate"),
+    [(1, "mono", "128k"), (2, "stereo", "384k"), (6, "5.1", "512k"), (6, None, "384k")],
+)
+def test_mp4_aac_bitrate_uses_only_confident_channel_layouts(
+    channels: int, layout: str | None, expected_bitrate: str
+) -> None:
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=96_000,
+        artist=None,
+        title=None,
+        channels=channels,
+        channel_layout=layout,
+    )
+
+    plan = choose_audio_plan(metadata, pad=0)
+
+    assert plan.codec_args[plan.codec_args.index("-b:a") + 1] == expected_bitrate
+    assert "-ac" not in plan.codec_args
+
+@pytest.mark.parametrize("source_codec", ["pcm", "flac", "alac", "mp3", "aac", "opus"])
+@pytest.mark.parametrize("sample_rate", [44_100, 48_000, 96_000, 192_000])
+def test_mov_audio_always_normalizes_to_24_bit_48khz_pcm(
+    source_codec: str, sample_rate: int
+) -> None:
+    metadata = AudioMetadata(
+        codec=source_codec,
+        bitrate=900_000,
+        sample_rate=sample_rate,
+        artist=None,
+        title=None,
+        channels=2,
+    )
+
+    plan = choose_audio_plan(metadata, pad=0, output_profile=PRORES_MOV_OUTPUT_PROFILE)
+
+    assert plan.copy is False
+    assert plan.codec_args == ("-c:a", "pcm_s24le", "-ar", "48000")
+    assert plan.filter_args == ()
+
+def test_mov_audio_composes_padding_as_one_filter() -> None:
+    plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=2.5,
+        output_profile=PRORES_MOV_OUTPUT_PROFILE,
+    )
+
+    assert plan.filter_args == ("-af", "apad=pad_dur=2.5")
+
+def test_unknown_multichannel_aac_layout_is_preserved_with_warning() -> None:
+    metadata = AudioMetadata(
+        codec="flac",
+        bitrate=900_000,
+        sample_rate=48_000,
+        artist=None,
+        title=None,
+        channels=6,
+    )
+
+    assert audio_plan_warnings(metadata, output_profile_for_path(Path("output.mp4"))) == [
+        "source audio has 6 channels with unknown layout; yaatv will preserve the channels and use 384 kbps AAC "
+        "because the layout is not a recognized mono, stereo, or 5.1 arrangement"
+    ]
 
 def test_low_bitrate_warning_is_reported() -> None:
     warnings = quality_warnings(

@@ -136,7 +136,12 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
     info = audio.info
     bitrate = _audio_bitrate(path, info)
     sample_rate = _int_or_none(getattr(info, "sample_rate", None))
+    channels = _int_or_none(getattr(info, "channels", None))
+    if channels is not None and channels <= 0:
+        channels = None
     codec = _audio_codec(audio, path)
+    channel_layout = _string_or_none(getattr(info, "channel_layout", None))
+    aac_profile = _mutagen_aac_profile(info)
 
     tags = getattr(audio, "tags", None)
 
@@ -159,6 +164,9 @@ def read_audio_metadata(path: Path) -> AudioMetadata:
         date=_tag_value(tags, ("date", "TDRC", "\xa9day", "TYER", "year", "WM/Year")),
         track=_tag_value(tags, ("tracknumber", "TRCK", "trkn", "track", "WM/TrackNumber")),
         disc=_tag_value(tags, ("discnumber", "TPOS", "disk", "disc", "WM/PartOfSet")),
+        channels=channels,
+        channel_layout=channel_layout,
+        aac_profile=aac_profile,
     )
 
 
@@ -303,6 +311,18 @@ def _audio_codec(audio: object, path: Path) -> str | None:
     for candidate in candidates:
         if candidate:
             return str(candidate).strip().lower()
+    return None
+
+
+def _mutagen_aac_profile(info: object) -> str | None:
+    codec = (_string_or_none(getattr(info, "codec", None)) or "").lower()
+    description = (_string_or_none(getattr(info, "codec_description", None)) or "").lower()
+    if codec == "mp4a.40.2" or description in {"aac lc", "aac-lc"}:
+        return "LC"
+    if codec == "mp4a.40.5" or "he-aac" in description or "sbr" in description:
+        return "HE-AAC"
+    if codec == "mp4a.40.29":
+        return "HE-AACv2"
     return None
 
 

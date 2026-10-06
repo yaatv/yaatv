@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
 # 2. Data models and exceptions
@@ -69,6 +69,9 @@ class AudioMetadata:
     date: str | None = None
     track: str | None = None
     disc: str | None = None
+    channels: int | None = None
+    channel_layout: str | None = None
+    aac_profile: str | None = None
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,15 @@ class OutputProfile:
     faststart_args: tuple[str, ...] = ()
     output_format_args: tuple[str, ...] = ()
     large_file_note: str | None = None
+    audio_mode: Literal["aac_lc", "pcm_s24le"] = "aac_lc"
+
+
+@dataclass(frozen=True)
+class AudioStreamInfo:
+    codec: str | None
+    profile: str | None
+    channels: int | None
+    channel_layout: str | None
 
 
 @dataclass(frozen=True)

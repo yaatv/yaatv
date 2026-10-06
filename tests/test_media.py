@@ -29,6 +29,7 @@ def test_read_audio_metadata_confirmed_pcm_wav_suppresses_low_bitrate_warning(
 
     metadata = read_audio_metadata(wav_path)
     assert metadata.codec == "pcm"
+    assert metadata.channels == 1
     assert metadata.bitrate is not None and metadata.bitrate < 256_000
     warnings = quality_warnings(metadata, image_size=None, target_size=(1920, 1080))
     assert warnings == []
@@ -152,6 +153,35 @@ def test_read_audio_metadata_aac_preserves_low_bitrate_warning(
     assert quality_warnings(metadata, image_size=None, target_size=(1920, 1080)) == [
         "source audio bitrate is 192kbps, below the 256kbps warning threshold"
     ]
+
+def test_read_audio_metadata_captures_positive_aac_lc_and_channel_details(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    class MP4:
+        info = type(
+            "FakeInfo",
+            (),
+            {
+                "codec": "mp4a.40.2",
+                "codec_description": "AAC LC",
+                "bitrate": 384_000,
+                "sample_rate": 48_000,
+                "channels": 2,
+                "length": 10.0,
+            },
+        )()
+        tags = None
+
+    audio_path = tmp_path / "track.m4a"
+    audio_path.write_bytes(b"dummy")
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: MP4())
+
+    metadata = read_audio_metadata(audio_path)
+
+    assert metadata.codec == "mp4a.40.2"
+    assert metadata.aac_profile == "LC"
+    assert metadata.channels == 2
 
 def test_read_audio_metadata_unknown_codec_preserves_low_bitrate_warning(
     monkeypatch: pytest.MonkeyPatch,
