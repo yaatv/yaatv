@@ -18,18 +18,18 @@ Unit tests are organized into focused modules by domain:
 - **`tests/test_project.py`**: Packaging and repository-level contracts (`pyproject.toml`, Python version requirements, dynamic package versioning, README format consistency, CI/release workflow assertions).
 - **`tests/test_options.py`**: Argument parser syntax, defaults, help text, option validation, mutual exclusion, and `--bg-color`/`--pad` validation.
 - **`tests/test_cli.py`**: CLI process/argv boundary and Windows Explorer pause detection.
-- **`tests/test_planning.py`**: Audio planning, AAC copy decisions, quality warnings, lossless codec handling, and output geometry.
+- **`tests/test_planning.py`**: Audio planning, AAC copy decisions, quality warnings, lossless codec handling, output geometry, and ProRes size estimates.
 - **`tests/test_media.py`**: Audio metadata parsing, embedded artwork extraction, input classification, and image validation.
-- **`tests/test_output.py`**: Filename sanitization, output path normalization, output naming, file details, and file size formatting.
+- **`tests/test_output.py`**: Filename sanitization, output path normalization, output naming, file details, and approximate size formatting.
 - **`tests/test_ffmpeg_command.py`**: FFmpeg command construction, filtergraph branches, H.264/ProRes profiles, and output metadata.
-- **`tests/test_ffmpeg_runner.py`**: FFmpeg execution, subprocess progress streaming, bounded error tails, output probing, and stream verification.
+- **`tests/test_ffmpeg_runner.py`**: FFmpeg execution, subprocess progress streaming, bounded error tails, FFprobe profile extraction, and stream verification.
 - **`tests/test_ffmpeg_tools.py`**: Binary discovery, tool health checks, app-managed tool paths, and platform detection.
 - **`tests/test_diagnostics.py`**: `--scry` diagnostics and tool reports.
 - **`tests/test_ffmpeg_install.py`**: Managed FFmpeg installation (archive downloads, HTTPS enforcement, retries, checksums, archive extraction, platform fallback sources, transactional staging, rollback, and platform-specific installer dispatch).
 - **`tests/test_self_install.py`**: Onefile-only self-installation, current-user locations, shell and registry PATH updates, idempotent upgrades, and replacement failures.
 - **`tests/test_update.py`**: Update-cache paths and schema, freshness, stable semantic versions, bounded GitHub responses, and silent network/cache failures.
 - **`tests/test_system.py`**: FFmpeg and FFprobe tool resolution and `--scry` dispatch behavior.
-- **`tests/test_workflow.py`**: End-to-end `cli.run(argv)` coverage plus direct `workflow.run(Config)` tests (dry runs, quick mode, overwrite prompts and semantics, transactional cleanup on failure, update notices, and error handling).
+- **`tests/test_workflow.py`**: End-to-end `cli.run(argv)` coverage plus direct `workflow.run(Config)` tests (dry runs, quick mode, overwrite prompts and semantics, ProRes size/disk/FAT32 preflight, transactional cleanup on failure, update notices, and error handling).
 - **`tests/_support.py` & `tests/conftest.py`**: Shared test helpers, archive generators, and pytest configuration.
 
 These tests mock external calls to `subprocess.run` and `subprocess.Popen` where appropriate. They run quickly, deterministically, and offline without requiring FFmpeg installed on the system.
@@ -79,11 +79,13 @@ cache only after successful output verification. Unit tests do not depend on liv
 
 Integration tests are marked with `@pytest.mark.integration`. They verify:
 - End-to-end media transcoding with real FFmpeg and FFprobe.
-- Actual MP4 and ProRes MOV creation.
+- Actual H.264 High MP4 and ProRes 422 HQ MOV creation, including AAC-LC and 24-bit PCM audio.
 - Audio and image tag extraction.
 - Silence pad concatenation and post-encode verification.
 
 Integration tests automatically skip if `ffmpeg` or `ffprobe` is not found on the system.
+The suite uses small inputs and does not render a full 8K output; 8K geometry and
+command construction are covered by unit tests.
 
 ---
 
@@ -183,6 +185,7 @@ python scripts/check.py
   - Test paths containing spaces and unicode characters.
   - Verify that file handles are properly closed so Windows file-locking does not prevent file replacement.
   - Verify that post-run pause prompts are restricted strictly to Windows Explorer (`explorer.exe`) drag-and-drop runs and do not trigger in terminals (`cmd.exe`, `powershell.exe`).
+  - Verify ProRes preflight against the output volume, including FAT32's 4 GiB file limit when available.
 - **Linux**:
   - Verify execution in headless/CI environments.
   - Check that no interactive prompt hangs in non-TTY environments or piped executions.
