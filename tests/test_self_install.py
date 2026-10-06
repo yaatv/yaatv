@@ -81,13 +81,6 @@ def test_distribution_kind_treats_source_and_missing_markers_safely(
 @pytest.mark.parametrize(
     ("platform_name", "env", "home", "expected", "root"),
     [
-        (
-            "Windows",
-            {"LOCALAPPDATA": "C:/Users/test/AppData/Local"},
-            Path("C:/Users/test"),
-            "C:/Users/test/AppData/Local/Programs/yaatv/bin",
-            "C:/Users/test/AppData/Local",
-        ),
         ("Linux", {}, Path("/home/test"), "/home/test/.local/bin", "/home/test"),
         ("Darwin", {}, Path("/Users/test"), "/Users/test/.local/bin", "/Users/test"),
     ],
@@ -105,9 +98,25 @@ def test_installation_paths_are_current_user_scoped(
     assert str(user_root).replace("\\", "/") == root
 
 
-def test_windows_install_location_rejects_relative_or_path_delimited_local_app_data() -> None:
+def test_windows_installation_paths_use_host_absolute_temp_directory(tmp_path: Path) -> None:
+    local_app_data = tmp_path / "AppData" / "Local"
+
+    install_dir, user_root = _installation_paths(
+        "Windows",
+        {"LOCALAPPDATA": str(local_app_data)},
+        tmp_path,
+    )
+
+    assert install_dir == local_app_data / "Programs" / "yaatv" / "bin"
+    assert user_root == local_app_data
+
+
+@pytest.mark.parametrize("local_app_data", ["relative", "relative;C:/unexpected"])
+def test_windows_install_location_rejects_relative_or_path_delimited_local_app_data(
+    local_app_data: str,
+) -> None:
     with pytest.raises(YaatvError, match="LOCALAPPDATA must be an absolute path"):
-        _installation_paths("Windows", {"LOCALAPPDATA": "C:/Users/test;C:/unexpected"}, Path("C:/Users/test"))
+        _installation_paths("Windows", {"LOCALAPPDATA": local_app_data}, Path("/home/test"))
 
 
 @pytest.mark.parametrize("kind", ["python", ONEDIR_DISTRIBUTION, "unknown"])
@@ -210,21 +219,73 @@ def test_install_uses_stable_windows_executable_name_and_user_registry_path(
     assert "current-user PATH" in stderr.getvalue()
 
 
-def test_install_does_not_duplicate_a_path_that_is_already_available(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "path_component",
+    ["~/.local/bin/../bin/", '"${HOME}/.local/bin/../bin/"'],
+)
+def test_install_does_not_duplicate_a_path_that_is_already_available(
+    tmp_path: Path,
+    path_component: str,
+) -> None:
     home = tmp_path / "home"
     install_dir = home / ".local" / "bin"
     config_path = home / ".bashrc"
+    target_install_path = "/home/yaatv-test/.local/bin"
 
     changed, location = _ensure_user_path(
         install_dir,
         "Linux",
-        {"PATH": f"/usr/bin:{install_dir}", "SHELL": "/bin/bash"},
+        {
+            "PATH": f"/usr/bin:{path_component}",
+            "SHELL": "/bin/bash",
+            "HOME": "/home/yaatv-test",
+        },
         home,
+        target_install_path=target_install_path,
     )
 
     assert not changed
     assert location == "PATH"
     assert not config_path.exists()
+
+
+def test_windows_path_comparison_expands_variables_and_normalizes_lexically(tmp_path: Path) -> None:
+    target_install_path = r"C:\Users\Alice\AppData\Local\Programs\yaatv\bin"
+    registry = _FakeRegistry()
+
+    changed, location = _ensure_user_path(
+        tmp_path / "host-install" / "bin",
+        "Windows",
+        {
+            "PATH": '"%localappdata%/Programs/yaatv/bin/../bin/"',
+            "LOCALAPPDATA": r"C:\Users\Alice\AppData\Local",
+        },
+        tmp_path,
+        winreg_module=registry,
+        target_install_path=target_install_path,
+    )
+
+    assert not changed
+    assert location == "PATH"
+    assert registry.set_calls == 0
+
+
+def test_posix_path_comparison_remains_case_sensitive_on_any_host(tmp_path: Path) -> None:
+    home = tmp_path / "host-home"
+    install_dir = home / ".local" / "bin"
+    target_install_path = "/opt/YAATV/bin"
+
+    changed, location = _ensure_user_path(
+        install_dir,
+        "Linux",
+        {"PATH": "/usr/bin:/opt/yaatv/bin", "SHELL": "/bin/bash"},
+        home,
+        target_install_path=target_install_path,
+    )
+
+    assert changed
+    assert location == str(home / ".bashrc")
+    assert (home / ".bashrc").read_text(encoding="utf-8").count("# Added by yaatv --install") == 1
 
 
 def test_install_does_not_duplicate_a_manual_shell_path_entry(tmp_path: Path) -> None:

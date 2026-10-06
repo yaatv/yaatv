@@ -4,6 +4,8 @@ import filecmp
 import ntpath
 import os
 import platform
+import posixpath
+import re
 import shutil
 import stat
 import sys
@@ -19,6 +21,8 @@ PYTHON_DISTRIBUTION = "python"
 ONEDIR_DISTRIBUTION = "pyinstaller-onedir"
 ONEFILE_DISTRIBUTION = "pyinstaller-onefile"
 _PATH_MARKER = "# Added by yaatv --install"
+_WINDOWS_ENV_VAR_RE = re.compile(r"%([^%]+)%")
+_POSIX_ENV_VAR_RE = re.compile(r"\$(?:\{([^}]+)\}|([A-Za-z_][A-Za-z0-9_]*))")
 
 
 def distribution_kind() -> str:
@@ -46,7 +50,11 @@ def install_yaatv(
     source_executable: Path | None = None,
     winreg_module: Any | None = None,
 ) -> Path:
-    """Install this onefile executable for the current user and configure PATH."""
+    """Install this onefile executable for the current user and configure PATH.
+
+    ``platform_name`` selects target-OS policy. ``Path`` arguments and file operations
+    use the host filesystem, which lets tests model target policy with host temporary files.
+    """
     kind = distribution_kind()
     if kind != ONEFILE_DISTRIBUTION:
         raise YaatvError(_unsupported_distribution_message(kind))
@@ -93,13 +101,14 @@ def _unsupported_distribution_message(kind: str) -> str:
 
 
 def _installation_paths(platform_name: str, environ: Mapping[str, str], home: Path) -> tuple[Path, Path]:
+    """Return host filesystem paths for the requested target's per-user install location."""
     if platform_name == "Windows":
         local_app_data = environ.get("LOCALAPPDATA")
         if not local_app_data:
             raise YaatvError("LOCALAPPDATA is not set; cannot choose yaatv's current-user install directory.")
-        if not ntpath.isabs(local_app_data) or any(char in local_app_data for char in ";\r\n\0"):
+        if not Path(local_app_data).is_absolute() or any(char in local_app_data for char in ";\r\n\0"):
             raise YaatvError("LOCALAPPDATA must be an absolute path without PATH separators or control characters.")
-        root = Path(local_app_data).expanduser()
+        root = Path(local_app_data)
         return root / "Programs" / "yaatv" / "bin", root
     if platform_name in {"Linux", "Darwin"}:
         return home / ".local" / "bin", home
@@ -169,16 +178,25 @@ def _ensure_user_path(
     home: Path,
     *,
     winreg_module: Any | None = None,
+    target_install_path: str | None = None,
 ) -> tuple[bool, str]:
+    """Configure target PATH policy while editing host files through ``Path`` objects.
+
+    ``environ`` supplies target PATH and expansion values; ``home`` is the host directory
+    whose shell configuration may be edited. ``target_install_path`` optionally supplies
+    a target-platform spelling for cross-platform tests. Production callers use the same
+    native path for both path domains.
+    """
     path_value = environ.get("PATH", "")
-    if _path_contains(path_value, install_dir, platform_name):
+    install_path = str(install_dir) if target_install_path is None else target_install_path
+    if _path_contains(path_value, install_path, platform_name, environ=environ):
         return False, "PATH"
 
     if platform_name == "Windows":
-        changed = _add_windows_user_path(install_dir, winreg_module)
+        changed = _add_windows_user_path(install_path, environ, winreg_module)
         return changed, "the current-user PATH"
 
-    shell = Path(environ.get("SHELL", "")).name.lower()
+    shell = posixpath.basename(environ.get("SHELL", "")).lower()
     config_path, line = _shell_path_update(install_dir, home, platform_name, shell)
     try:
         _validate_shell_config_path(config_path, home)
@@ -286,7 +304,11 @@ def _atomic_write_text(path: Path, current: str, addition: str) -> None:
                 pass
 
 
-def _add_windows_user_path(install_dir: Path, winreg_module: Any | None) -> bool:
+def _add_windows_user_path(
+    install_path: str,
+    environ: Mapping[str, str],
+    winreg_module: Any | None,
+) -> bool:
     registry: Any
     if winreg_module is not None:
         registry = winreg_module
@@ -311,10 +333,10 @@ def _add_windows_user_path(install_dir: Path, winreg_module: Any | None) -> bool
                 value, value_type = "", registry.REG_EXPAND_SZ
             if not isinstance(value, str):
                 raise YaatvError("The current-user PATH registry value is not a string.")
-            if _path_contains(value, install_dir, "Windows"):
+            if _path_contains(value, install_path, "Windows", environ=environ):
                 return False
             separator = ";"
-            updated = value + ("" if not value or value.endswith(separator) else separator) + str(install_dir)
+            updated = value + ("" if not value or value.endswith(separator) else separator) + install_path
             registry.SetValueEx(key, "Path", 0, value_type, updated)
         finally:
             registry.CloseKey(key)
@@ -325,17 +347,80 @@ def _add_windows_user_path(install_dir: Path, winreg_module: Any | None) -> bool
     return True
 
 
-def _path_contains(path_value: str, install_dir: Path, platform_name: str) -> bool:
+def _path_contains(
+    path_value: str,
+    install_path: str,
+    platform_name: str,
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> bool:
     separator = ";" if platform_name == "Windows" else ":"
-    target = _normalized_path(str(install_dir), platform_name)
-    return any(_normalized_path(entry, platform_name) == target for entry in path_value.split(separator) if entry)
+    environment = os.environ if environ is None else environ
+    target = _normalized_path(install_path, platform_name, environment)
+    return any(
+        _normalized_path(entry, platform_name, environment) == target
+        for entry in path_value.split(separator)
+        if entry
+    )
 
 
-def _normalized_path(value: str, platform_name: str) -> str:
-    entry = value.strip().strip('"')
+def _normalized_path(
+    value: str,
+    platform_name: str,
+    environ: Mapping[str, str] | None = None,
+) -> str:
+    """Normalize a PATH string lexically using target semantics, without host I/O."""
+    environment = os.environ if environ is None else environ
+    entry = value.strip()
+    if len(entry) >= 2 and entry[0] == entry[-1] and entry[0] in {'"', "'"}:
+        entry = entry[1:-1]
+
     if platform_name == "Windows":
-        return ntpath.normcase(ntpath.normpath(ntpath.expandvars(entry)))
-    try:
-        return os.path.normcase(os.path.normpath(str(Path(entry).expanduser().resolve(strict=False))))
-    except (OSError, RuntimeError):
-        return os.path.normcase(os.path.normpath(entry))
+        entry = _expand_windows_variables(entry, environment)
+        entry = _expand_current_home(entry, "Windows", _target_home(platform_name, environment))
+        return ntpath.normcase(ntpath.normpath(entry))
+
+    entry = _expand_posix_variables(entry, environment)
+    entry = _expand_current_home(entry, "POSIX", _target_home(platform_name, environment))
+    return posixpath.normcase(posixpath.normpath(entry))
+
+
+def _expand_current_home(value: str, path_flavor: str, target_home: str | None) -> str:
+    if target_home is None:
+        return value
+    if path_flavor == "Windows":
+        if value != "~" and not value.startswith(("~/", "~\\")):
+            return value
+        return ntpath.join(target_home, value[2:].lstrip("/\\"))
+    if value != "~" and not value.startswith("~/"):
+        return value
+    return posixpath.join(target_home, value[2:].lstrip("/"))
+
+
+def _expand_windows_variables(value: str, environ: Mapping[str, str]) -> str:
+    values = {name.casefold(): item for name, item in environ.items()}
+    return _WINDOWS_ENV_VAR_RE.sub(
+        lambda match: values.get(match.group(1).casefold(), match.group(0)),
+        value,
+    )
+
+
+def _expand_posix_variables(value: str, environ: Mapping[str, str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1) or match.group(2)
+        return environ.get(name, match.group(0))
+
+    return _POSIX_ENV_VAR_RE.sub(replace, value)
+
+
+def _target_home(platform_name: str, environ: Mapping[str, str]) -> str | None:
+    if platform_name == "Windows":
+        values = {name.casefold(): item for name, item in environ.items()}
+        target_home = values.get("userprofile")
+        if target_home is None:
+            drive = values.get("homedrive")
+            path = values.get("homepath")
+            target_home = f"{drive}{path}" if drive is not None and path is not None else None
+    else:
+        target_home = environ.get("HOME")
+    return target_home
