@@ -1,6 +1,7 @@
 import subprocess
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,8 @@ from yaatv.cli import run
 from yaatv.models import AudioMetadata, AudioStreamInfo, FFmpegResult, OutputStats, YaatvError
 from yaatv.options import parse_args
 from yaatv.output import confirm_overwrite
+from yaatv.planning import estimate_prores_output_size
+from yaatv.workflow import PRORES_MINIMUM_DISK_RESERVE_BYTES, _preflight_prores_output
 from yaatv.workflow import run as workflow_run
 
 
@@ -41,6 +44,10 @@ def test_run_dry_run_prints_command_without_encoding(
         ),
     )
     monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: pytest.fail("MP4 must not use the ProRes disk preflight"),
+    )
 
     def encode(_command: list[str], *, verbose: bool = False, **_kwargs: object) -> int:
         raise AssertionError("dry run must not encode")
@@ -84,6 +91,183 @@ def test_run_dry_run_mov_uses_the_profile_specific_pcm_plan(
     assert "-c:a pcm_s24le" in command
     assert "-ar 48000" in command
     assert "-c:a aac" not in command
+
+def test_prores_preflight_reserves_space_on_the_output_filesystem(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    output_dir = tmp_path / "destination"
+    output_dir.mkdir()
+    output_path = output_dir / "master.mov"
+    estimated = estimate_prores_output_size((1920, 1080), 60, 2)
+    assert estimated is not None
+    requested_paths: list[Path] = []
+
+    available_bytes = estimated + PRORES_MINIMUM_DISK_RESERVE_BYTES - 1
+
+    def disk_usage(path: Path) -> SimpleNamespace:
+        requested_paths.append(path)
+        return SimpleNamespace(free=available_bytes)
+
+    monkeypatch.setattr("yaatv.workflow.shutil.disk_usage", disk_usage)
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="Not enough free disk space for this ProRes output"):
+        _preflight_prores_output(
+            output_path, (1920, 1080), 60, 2, dry_run=False, stderr=stderr
+        )
+
+    assert requested_paths == [output_dir]
+    assert "Estimated output size: ~" in stderr.getvalue()
+    assert "Available disk space:" in stderr.getvalue()
+
+    available_bytes += 1
+    _preflight_prores_output(
+        output_path, (1920, 1080), 60, 2, dry_run=False, stderr=StringIO()
+    )
+
+def test_insufficient_prores_space_stops_before_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "master.mov"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.resolve_ffmpeg_tools", lambda **_kwargs: ("ffmpeg", "ffprobe"))
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=48_000,
+            artist=None, title=None, duration=60, channels=2,
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage", lambda _path: SimpleNamespace(free=0)
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    encode_calls: list[list[str]] = []
+    monkeypatch.setattr(
+        "yaatv.workflow.run_ffmpeg",
+        lambda command, **_kwargs: encode_calls.append(command),
+    )
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="Not enough free disk space for this ProRes output"):
+        run(
+            ["-a", str(audio_path), "-i", str(image_path), "-o", str(output_path)],
+            stdin=StringIO(),
+            stderr=stderr,
+        )
+
+    assert encode_calls == []
+    assert not output_path.exists()
+
+def test_prores_preflight_warns_and_continues_when_disk_query_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    def disk_usage(_path: Path) -> SimpleNamespace:
+        raise OSError("share unavailable")
+
+    monkeypatch.setattr("yaatv.workflow.shutil.disk_usage", disk_usage)
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    stderr = StringIO()
+
+    _preflight_prores_output(
+        tmp_path / "master.mov", (1920, 1080), 60, 2, dry_run=False, stderr=stderr
+    )
+
+    assert "warning: could not determine available disk space: share unavailable" in stderr.getvalue()
+
+def test_prores_preflight_checks_fat32_single_file_limit(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=100 * 1024**3),
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: "FAT32")
+    stderr = StringIO()
+
+    with pytest.raises(YaatvError, match="FAT32's 4 GiB maximum single-file size"):
+        _preflight_prores_output(
+            tmp_path / "master.mov", (7680, 4320), 3600, 2, dry_run=False, stderr=stderr
+        )
+
+def test_prores_dry_run_reports_insufficient_space_without_failing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "master.mov"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", lambda: "ffprobe")
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac", bitrate=900_000, sample_rate=48_000,
+            artist=None, title=None, duration=600, channels=2,
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage", lambda _path: SimpleNamespace(free=0)
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    def unexpected_encode(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("dry run must not encode")
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", unexpected_encode)
+    stderr = StringIO()
+
+    assert run(
+        [
+            "-a",
+            str(audio_path),
+            "-i",
+            str(image_path),
+            "-o",
+            str(output_path),
+            "--resolution",
+            "8k",
+            "--dry-run",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    output = stderr.getvalue()
+    assert "Estimated output size: ~" in output
+    assert "warning: this output is expected to be very large" in output
+    assert "warning: Not enough free disk space" in output
+    assert "Dry run continues because it will not write media." in output
+    assert "ffmpeg" in output
+
+def test_prores_dry_run_reports_fat32_limit_without_failing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=100 * 1024**3),
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: "FAT32")
+    stderr = StringIO()
+
+    _preflight_prores_output(
+        tmp_path / "master.mov", (7680, 4320), 3600, 2, dry_run=True, stderr=stderr
+    )
+
+    assert "warning: The estimated ProRes output exceeds FAT32's 4 GiB" in stderr.getvalue()
+    assert "Dry run continues because it will not write media." in stderr.getvalue()
 
 def test_dry_run_uses_optional_ffprobe_for_multichannel_planning(
     monkeypatch: pytest.MonkeyPatch,

@@ -38,6 +38,13 @@ TRANSCODE_AUDIO_BITRATE = "384k"
 TRANSCODE_MONO_AUDIO_BITRATE = "128k"
 TRANSCODE_51_AUDIO_BITRATE = "512k"
 TRANSCODE_AUDIO_SAMPLE_RATE = "48000"
+PRORES_HQ_REFERENCE_SIZE = (1920, 1080)
+PRORES_HQ_REFERENCE_FPS = 29.97
+PRORES_HQ_REFERENCE_BITRATE_BPS = 220_000_000
+PRORES_OUTPUT_FRAME_RATE = 1.0
+PCM_AUDIO_BITS_PER_SAMPLE = 24
+PRORES_ESTIMATE_DEFAULT_CHANNELS = 2
+PRORES_ESTIMATE_CONTAINER_OVERHEAD = 0.05
 DEFAULT_BACKGROUND_COLOR = "black"
 
 
@@ -58,6 +65,48 @@ LOSSLESS_AUDIO_CODECS = {
 
 def output_size(resolution: str, aspect: str) -> tuple[int, int]:
     return OUTPUT_SIZES[aspect][resolution]
+
+
+def estimate_prores_output_size(
+    target_size: tuple[int, int], duration: float | None, audio_channels: int | None
+) -> int | None:
+    """Estimate ProRes HQ plus PCM bytes; ProRes VBR makes this approximate.
+
+    The video rate scales Apple's 220 Mbps 1920x1080/29.97 fps reference by
+    target pixel count and yaatv's 1 fps output. PCM is calculated directly.
+    Unknown channel counts use stereo, and the total includes 5% container
+    overhead.
+    """
+    width, height = target_size
+    if (
+        duration is None
+        or not math.isfinite(duration)
+        or duration <= 0
+        or width <= 0
+        or height <= 0
+    ):
+        return None
+
+    channels = audio_channels if audio_channels is not None and audio_channels > 0 else PRORES_ESTIMATE_DEFAULT_CHANNELS
+    pixels = width * height
+    reference_pixels = PRORES_HQ_REFERENCE_SIZE[0] * PRORES_HQ_REFERENCE_SIZE[1]
+    video_bits_per_second = (
+        PRORES_HQ_REFERENCE_BITRATE_BPS
+        * pixels
+        / reference_pixels
+        * PRORES_OUTPUT_FRAME_RATE
+        / PRORES_HQ_REFERENCE_FPS
+    )
+    pcm_bits_per_second = COPY_AAC_SAMPLE_RATE * PCM_AUDIO_BITS_PER_SAMPLE * channels
+    estimated_bytes = (
+        (video_bits_per_second + pcm_bits_per_second)
+        * duration
+        / 8
+        * (1 + PRORES_ESTIMATE_CONTAINER_OVERHEAD)
+    )
+    if not math.isfinite(estimated_bytes):
+        return None
+    return math.ceil(estimated_bytes)
 
 
 # ---------------------------------------------------------------------------

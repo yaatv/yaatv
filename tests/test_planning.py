@@ -7,6 +7,7 @@ from yaatv.models import AudioMetadata
 from yaatv.planning import (
     audio_plan_warnings,
     choose_audio_plan,
+    estimate_prores_output_size,
     is_high_quality_aac,
     is_lossless_codec,
     output_size,
@@ -161,6 +162,26 @@ def test_unknown_multichannel_aac_layout_is_preserved_with_warning() -> None:
         "source audio has 6 channels with unknown layout; yaatv will preserve the channels and use 384 kbps AAC "
         "because the layout is not a recognized mono, stereo, or 5.1 arrangement"
     ]
+
+def test_prores_size_estimate_scales_with_resolution_and_preserves_channel_count() -> None:
+    hd = estimate_prores_output_size((1920, 1080), 60, 2)
+    four_k = estimate_prores_output_size((3840, 2160), 60, 2)
+    six_channel = estimate_prores_output_size((1920, 1080), 60, 6)
+    stereo_fallback = estimate_prores_output_size((1920, 1080), 60, None)
+
+    assert hd is not None
+    assert four_k is not None
+    assert six_channel is not None
+    assert stereo_fallback == hd
+    assert four_k > hd * 3
+    assert four_k < hd * 4
+    assert six_channel > hd
+
+@pytest.mark.parametrize("duration", [None, 0, -1, float("nan"), float("inf")])
+def test_prores_size_estimate_is_unavailable_for_unknown_or_invalid_duration(
+    duration: float | None,
+) -> None:
+    assert estimate_prores_output_size((1920, 1080), duration, 2) is None
 
 def test_low_bitrate_warning_is_reported() -> None:
     warnings = quality_warnings(

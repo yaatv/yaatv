@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import math
 import os
+import shutil
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
@@ -28,11 +30,19 @@ from .output import (
     _discard_staged_output,
     _staging_output_path,
     confirm_overwrite,
+    format_approximate_file_size,
+    format_file_size,
     open_output_folder,
     print_output_summary,
     resolve_output_path,
 )
-from .planning import audio_plan_warnings, choose_audio_plan, output_size, quality_warnings
+from .planning import (
+    audio_plan_warnings,
+    choose_audio_plan,
+    estimate_prores_output_size,
+    output_size,
+    quality_warnings,
+)
 from .self_install import install_yaatv
 from .update import cached_update_notice, maybe_refresh_update_cache
 
@@ -40,6 +50,11 @@ from .update import cached_update_notice, maybe_refresh_update_cache
 # 4. Input classification and tool discovery
 # Canvas presets, drag-and-drop file detection, and finding FFmpeg/FFprobe.
 # ---------------------------------------------------------------------------
+
+PRORES_LARGE_OUTPUT_THRESHOLD_BYTES = 2 * 1024**3
+PRORES_DISK_RESERVE_FRACTION = 0.10
+PRORES_MINIMUM_DISK_RESERVE_BYTES = 512 * 1024**2
+FAT32_MAX_FILE_SIZE_BYTES = 2**32 - 1
 
 
 def resolve_ffmpeg_tools(
@@ -181,6 +196,16 @@ def run(
         audio_plan = choose_audio_plan(metadata, args.pad, output_profile)
         output_duration = metadata.duration + args.pad if metadata.duration is not None else None
 
+        if is_prores:
+            _preflight_prores_output(
+                output_path,
+                target_size,
+                output_duration,
+                metadata.channels,
+                dry_run=args.dry_run,
+                stderr=stderr,
+            )
+
         if not args.no_warn:
             warnings = input_format_warnings(audio_path, image_path, bg_image_path)
             warnings.extend(quality_warnings(metadata, image_size, target_size))
@@ -262,3 +287,116 @@ def run(
         if update_notice:
             print(update_notice, file=stderr)
     return 0
+
+
+def _preflight_prores_output(
+    output_path: Path,
+    target_size: tuple[int, int],
+    duration: float | None,
+    audio_channels: int | None,
+    *,
+    dry_run: bool,
+    stderr: TextIO,
+) -> None:
+    estimated_size = estimate_prores_output_size(target_size, duration, audio_channels)
+    if estimated_size is None:
+        print(
+            "warning: ProRes output size cannot be estimated because audio duration is unavailable or invalid",
+            file=stderr,
+        )
+    else:
+        print(f"Estimated output size: {format_approximate_file_size(estimated_size)}", file=stderr)
+        if estimated_size >= PRORES_LARGE_OUTPUT_THRESHOLD_BYTES:
+            print("warning: this output is expected to be very large", file=stderr)
+
+    try:
+        available_bytes: int | None = shutil.disk_usage(output_path.parent).free
+    except OSError as exc:
+        print(f"warning: could not determine available disk space: {exc}", file=stderr)
+        available_bytes = None
+    if available_bytes is not None:
+        print(f"Available disk space: {format_file_size(available_bytes)}", file=stderr)
+
+    if estimated_size is None:
+        return
+
+    if available_bytes is not None:
+        reserve = max(
+            math.ceil(estimated_size * PRORES_DISK_RESERVE_FRACTION),
+            PRORES_MINIMUM_DISK_RESERVE_BYTES,
+        )
+        required_bytes = estimated_size + reserve
+        if required_bytes > available_bytes:
+            _report_preflight_failure(
+                "Not enough free disk space for this ProRes output. "
+                f"Estimated requirement: {format_approximate_file_size(required_bytes)}; "
+                f"Available: {format_file_size(available_bytes)}",
+                dry_run=dry_run,
+                stderr=stderr,
+            )
+
+    filesystem_name = _windows_filesystem_name(output_path.parent)
+    if (
+        filesystem_name is not None
+        and filesystem_name.casefold() == "fat32"
+        and estimated_size > FAT32_MAX_FILE_SIZE_BYTES
+    ):
+        _report_preflight_failure(
+            "The estimated ProRes output exceeds FAT32's 4 GiB maximum single-file size. "
+            f"Estimated output size: {format_approximate_file_size(estimated_size)}",
+            dry_run=dry_run,
+            stderr=stderr,
+        )
+
+
+def _report_preflight_failure(message: str, *, dry_run: bool, stderr: TextIO) -> None:
+    if dry_run:
+        print(f"warning: {message}. Dry run continues because it will not write media.", file=stderr)
+        return
+    raise YaatvError(message)
+
+
+def _windows_filesystem_name(directory: Path) -> str | None:
+    """Return a Windows volume's filesystem name when Win32 can determine it."""
+    if os.name != "nt":
+        return None
+
+    import ctypes
+    from ctypes import wintypes
+
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        get_volume_path = kernel32.GetVolumePathNameW
+        get_volume_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
+        get_volume_path.restype = wintypes.BOOL
+        get_volume_information = kernel32.GetVolumeInformationW
+        get_volume_information.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.LPWSTR,
+            wintypes.DWORD,
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            ctypes.POINTER(wintypes.DWORD),
+            wintypes.LPWSTR,
+            wintypes.DWORD,
+        ]
+        get_volume_information.restype = wintypes.BOOL
+
+        volume_root = ctypes.create_unicode_buffer(32768)
+        if not get_volume_path(str(directory.resolve()), volume_root, len(volume_root)):
+            return None
+        filesystem_name = ctypes.create_unicode_buffer(32)
+        if not get_volume_information(
+            volume_root.value,
+            None,
+            0,
+            None,
+            None,
+            None,
+            filesystem_name,
+            len(filesystem_name),
+        ):
+            return None
+    except (OSError, AttributeError, RuntimeError):
+        return None
+    return filesystem_name.value or None

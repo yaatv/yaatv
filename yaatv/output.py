@@ -216,6 +216,10 @@ def format_file_size(size: int) -> str:
     return f"{size / (1024 * 1024 * 1024):.1f} GB"
 
 
+def format_approximate_file_size(size: int) -> str:
+    return f"~{format_file_size(size)}"
+
+
 def format_duration(seconds: float) -> str:
     total_seconds = max(0, int(round(seconds)))
     hours, remainder = divmod(total_seconds, 3600)
