@@ -471,25 +471,45 @@ jobs:
           set -euo pipefail
           (cd release-assets && sha256sum *.zip *.spdx.json *.exe yaatv-linux-x64 yaatv-macos-x64 yaatv-macos-arm64 | sort -k2 > SHA256SUMS)
 
-      - name: Sign checksums with PGP
+      - name: Sign and verify checksums with PGP
         env:
           PGP_PRIVATE_KEY: ${{ secrets.PGP_PRIVATE_KEY }}
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -n "${PGP_PRIVATE_KEY:-}" ]; then
-            echo "Importing PGP private key..."
-            echo "$PGP_PRIVATE_KEY" | gpg --batch --import
-            if [ -n "${PGP_PASSPHRASE:-}" ]; then
-              gpg --batch --yes --pinentry-mode loopback --passphrase "$PGP_PASSPHRASE" --armor --detach-sign release-assets/SHA256SUMS
-            else
-              gpg --batch --yes --armor --detach-sign release-assets/SHA256SUMS
-            fi
-            echo "Created SHA256SUMS.asc signature."
-          else
-            echo "No PGP_PRIVATE_KEY secret configured; skipping detached PGP signature."
+
+          : "${PGP_PRIVATE_KEY:?Set the PGP_PRIVATE_KEY secret in the release environment.}"
+
+          gpg_home="$(mktemp -d "${RUNNER_TEMP:-/tmp}/yaatv-release-gpg.XXXXXX")"
+          chmod 700 "$gpg_home"
+          export GNUPGHOME="$gpg_home"
+          trap 'gpgconf --kill gpg-agent >/dev/null 2>&1 || true; rm -rf -- "$GNUPGHOME"' EXIT
+
+          printf '%s\n' "$PGP_PRIVATE_KEY" | gpg --batch --import
+          gpg --batch --import public.key
+
+          expected_fingerprint="$(gpg --batch --show-keys --with-colons public.key | awk -F: '$1 == "fpr" && !fingerprint { fingerprint = $10 } END { print fingerprint }')"
+          if [[ -z "$expected_fingerprint" ]]; then
+            echo "Error: public.key does not contain a readable PGP key." >&2
+            exit 1
           fi
+          if ! gpg --batch --list-secret-keys "$expected_fingerprint" >/dev/null 2>&1; then
+            echo "Error: PGP_PRIVATE_KEY does not match the key in public.key." >&2
+            exit 1
+          fi
+
+          if [[ -n "${PGP_PASSPHRASE:-}" ]]; then
+            printf '%s\n' "$PGP_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+              --local-user "$expected_fingerprint" --armor --detach-sign \
+              --output release-assets/SHA256SUMS.asc release-assets/SHA256SUMS
+          else
+            gpg --batch --yes --local-user "$expected_fingerprint" --armor --detach-sign \
+              --output release-assets/SHA256SUMS.asc release-assets/SHA256SUMS
+          fi
+
+          gpg --batch --verify release-assets/SHA256SUMS.asc release-assets/SHA256SUMS
+          echo "Created and verified SHA256SUMS.asc with the key in public.key."
 
       - name: Attest build provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
