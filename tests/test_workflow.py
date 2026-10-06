@@ -16,7 +16,12 @@ from yaatv.models import AudioMetadata, AudioStreamInfo, FFmpegResult, OutputSta
 from yaatv.options import parse_args
 from yaatv.output import confirm_overwrite
 from yaatv.planning import estimate_prores_output_size
-from yaatv.workflow import PRORES_MINIMUM_DISK_RESERVE_BYTES, _preflight_prores_output
+from yaatv.workflow import (
+    PRORES_MINIMUM_DISK_RESERVE_BYTES,
+    YOUTUBE_MAX_UPLOAD_DURATION_SECONDS,
+    YOUTUBE_MAX_UPLOAD_SIZE_BYTES,
+    _preflight_prores_output,
+)
 from yaatv.workflow import run as workflow_run
 
 
@@ -91,6 +96,62 @@ def test_run_dry_run_mov_uses_the_profile_specific_pcm_plan(
     assert "-c:a pcm_s24le" in command
     assert "-ar 48000" in command
     assert "-c:a aac" not in command
+
+
+@pytest.mark.parametrize(
+    ("duration", "expects_warning"),
+    [
+        (YOUTUBE_MAX_UPLOAD_DURATION_SECONDS, False),
+        (YOUTUBE_MAX_UPLOAD_DURATION_SECONDS + 1, True),
+    ],
+)
+def test_mp4_dry_run_reports_youtube_duration_limit_without_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    duration: float,
+    expects_warning: bool,
+) -> None:
+    audio_path = tmp_path / "track.flac"
+    image_path = tmp_path / "cover.jpg"
+    output_path = tmp_path / "upload.mp4"
+    audio_path.write_bytes(b"audio")
+    image_path.write_bytes(b"image")
+    monkeypatch.setattr("yaatv.workflow.find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr("yaatv.workflow.find_ffprobe", lambda: "ffprobe")
+    monkeypatch.setattr("yaatv.workflow.probe_audio_stream", lambda *_args: None)
+    monkeypatch.setattr(
+        "yaatv.workflow.read_audio_metadata",
+        lambda _path: AudioMetadata(
+            codec="flac",
+            bitrate=900_000,
+            sample_rate=48_000,
+            artist=None,
+            title=None,
+            duration=duration,
+        ),
+    )
+    monkeypatch.setattr("yaatv.workflow.validate_image", lambda _path: (1920, 1080))
+
+    stderr = StringIO()
+    assert run(
+        [
+            "-a",
+            str(audio_path),
+            "-i",
+            str(image_path),
+            "-o",
+            str(output_path),
+            "--dry-run",
+            "--no-warn",
+        ],
+        stdin=StringIO(),
+        stderr=stderr,
+    ) == 0
+
+    output = stderr.getvalue()
+    assert ("YouTube's 12-hour upload limit" in output) is expects_warning
+    assert "ffmpeg" in output
+    assert not output_path.exists()
 
 def test_prores_preflight_reserves_space_on_the_output_filesystem(
     monkeypatch: pytest.MonkeyPatch,
@@ -198,6 +259,42 @@ def test_prores_preflight_checks_fat32_single_file_limit(
         _preflight_prores_output(
             tmp_path / "master.mov", (7680, 4320), 3600, 2, dry_run=False, stderr=stderr
         )
+
+
+@pytest.mark.parametrize(
+    ("estimated_size", "expects_warning"),
+    [
+        (YOUTUBE_MAX_UPLOAD_SIZE_BYTES, False),
+        (YOUTUBE_MAX_UPLOAD_SIZE_BYTES + 1, True),
+    ],
+)
+def test_prores_preflight_warns_above_youtube_size_limit_without_blocking(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    estimated_size: int,
+    expects_warning: bool,
+) -> None:
+    monkeypatch.setattr(
+        "yaatv.workflow.estimate_prores_output_size",
+        lambda *_args: estimated_size,
+    )
+    monkeypatch.setattr(
+        "yaatv.workflow.shutil.disk_usage",
+        lambda _path: SimpleNamespace(free=estimated_size * 2),
+    )
+    monkeypatch.setattr("yaatv.workflow._windows_filesystem_name", lambda _path: None)
+    stderr = StringIO()
+
+    _preflight_prores_output(
+        tmp_path / "master.mov",
+        (7680, 4320),
+        3600,
+        2,
+        dry_run=False,
+        stderr=stderr,
+    )
+
+    assert ("YouTube's 256 GB upload size limit" in stderr.getvalue()) is expects_warning
 
 def test_prores_dry_run_reports_insufficient_space_without_failing(
     monkeypatch: pytest.MonkeyPatch,

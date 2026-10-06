@@ -132,6 +132,9 @@ of `max(10% of the estimate, 512 MiB)`, and stops before encoding if the estimat
 plus reserve does not fit. On Windows it checks the 4 GiB FAT32 file limit when
 Win32 can identify the destination filesystem. Disk-query or filesystem-detection
 failures do not block encoding. Dry runs report capacity issues without failing.
+The workflow also warns when known output duration exceeds YouTube's 12-hour
+limit or an estimated ProRes file exceeds YouTube's 256 GB upload limit; these
+upload-limit warnings do not block local rendering.
 
 ## Media Tools & Environment (`--install-ffmpeg`, `--scry`)
 

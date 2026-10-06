@@ -29,7 +29,7 @@ Unit tests are organized into focused modules by domain:
 - **`tests/test_self_install.py`**: Onefile-only self-installation, current-user locations, shell and registry PATH updates, idempotent upgrades, and replacement failures.
 - **`tests/test_update.py`**: Update-cache paths and schema, freshness, stable semantic versions, bounded GitHub responses, and silent network/cache failures.
 - **`tests/test_system.py`**: FFmpeg and FFprobe tool resolution and `--scry` dispatch behavior.
-- **`tests/test_workflow.py`**: End-to-end `cli.run(argv)` coverage plus direct `workflow.run(Config)` tests (dry runs, quick mode, overwrite prompts and semantics, ProRes size/disk/FAT32 preflight, transactional cleanup on failure, update notices, and error handling).
+- **`tests/test_workflow.py`**: End-to-end `cli.run(argv)` coverage plus direct `workflow.run(Config)` tests (dry runs, quick mode, overwrite prompts and semantics, ProRes size/disk/FAT32 preflight, YouTube upload-limit warnings, transactional cleanup on failure, update notices, and error handling).
 - **`tests/_support.py` & `tests/conftest.py`**: Shared test helpers, archive generators, and pytest configuration.
 
 These tests mock external calls to `subprocess.run` and `subprocess.Popen` where appropriate. They run quickly, deterministically, and offline without requiring FFmpeg installed on the system.

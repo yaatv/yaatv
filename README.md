@@ -202,7 +202,10 @@ warns at estimates of 2 GiB or more and stops before encoding when the estimated
 output plus a safety reserve will not fit. On Windows, it also checks the FAT32
 single-file limit when the filesystem can be identified. `--dry-run` reports
 capacity problems but still prints the command. ProRes is variable-bitrate, so
-the size estimate is approximate.
+the size estimate is approximate. yaatv also warns when the known output
+duration exceeds YouTube's 12-hour limit or a ProRes estimate exceeds its 256 GB
+upload limit. These upload-limit warnings do not stop rendering. See
+[YouTube's upload limits](https://support.google.com/youtube/answer/71673).
 
 ## What to expect
 

@@ -55,6 +55,8 @@ PRORES_LARGE_OUTPUT_THRESHOLD_BYTES = 2 * 1024**3
 PRORES_DISK_RESERVE_FRACTION = 0.10
 PRORES_MINIMUM_DISK_RESERVE_BYTES = 512 * 1024**2
 FAT32_MAX_FILE_SIZE_BYTES = 2**32 - 1
+YOUTUBE_MAX_UPLOAD_DURATION_SECONDS = 12 * 60 * 60
+YOUTUBE_MAX_UPLOAD_SIZE_BYTES = 256 * 1024**3
 
 
 def resolve_ffmpeg_tools(
@@ -196,6 +198,16 @@ def run(
         audio_plan = choose_audio_plan(metadata, args.pad, output_profile)
         output_duration = metadata.duration + args.pad if metadata.duration is not None else None
 
+        if (
+            output_duration is not None
+            and math.isfinite(output_duration)
+            and output_duration > YOUTUBE_MAX_UPLOAD_DURATION_SECONDS
+        ):
+            print(
+                "warning: output duration exceeds YouTube's 12-hour upload limit; rendering will continue",
+                file=stderr,
+            )
+
         if is_prores:
             _preflight_prores_output(
                 output_path,
@@ -308,6 +320,12 @@ def _preflight_prores_output(
         print(f"Estimated output size: {format_approximate_file_size(estimated_size)}", file=stderr)
         if estimated_size >= PRORES_LARGE_OUTPUT_THRESHOLD_BYTES:
             print("warning: this output is expected to be very large", file=stderr)
+        if estimated_size > YOUTUBE_MAX_UPLOAD_SIZE_BYTES:
+            print(
+                "warning: estimated ProRes output exceeds YouTube's 256 GB upload size limit; "
+                "rendering will continue",
+                file=stderr,
+            )
 
     try:
         available_bytes: int | None = shutil.disk_usage(output_path.parent).free
@@ -364,8 +382,12 @@ def _windows_filesystem_name(directory: Path) -> str | None:
     import ctypes
     from ctypes import wintypes
 
+    windll = getattr(ctypes, "WinDLL", None)
+    if windll is None:
+        return None
+
     try:
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32 = windll("kernel32", use_last_error=True)
         get_volume_path = kernel32.GetVolumePathNameW
         get_volume_path.argtypes = [wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.DWORD]
         get_volume_path.restype = wintypes.BOOL
