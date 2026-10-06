@@ -7,6 +7,7 @@ from ..output import format_seconds
 from ..planning import DEFAULT_BACKGROUND_COLOR
 
 YAATV_PROVENANCE = "Created with yaatv.org"
+YAATV_ENCODER = "yaatv.org"
 
 # ---------------------------------------------------------------------------
 # 9. FFmpeg command and filtergraph construction
@@ -46,7 +47,7 @@ PRORES_MOV_OUTPUT_PROFILE = OutputProfile(
         "-vendor",
         "apl0",
     ),
-    output_format_args=("-f", "mov"),
+    output_format_args=("-movflags", "use_metadata_tags", "-f", "mov"),
     large_file_note=".mov output uses ProRes 422 HQ; file sizes will be very large",
     audio_mode="pcm_s24le",
 )
@@ -105,16 +106,31 @@ def _duration_args(output_duration: float | None) -> tuple[str, ...]:
     return ("-t", format_seconds(output_duration)) if output_duration is not None else ()
 
 
-def _encode_args(audio_plan: AudioPlan, output_profile: OutputProfile) -> tuple[str, ...]:
+def _encode_args(
+    audio_plan: AudioPlan,
+    output_profile: OutputProfile,
+    *,
+    low_memory: bool = False,
+) -> tuple[str, ...]:
+    low_memory_args: tuple[str, ...] = ()
+    if low_memory:
+        low_memory_args = ("-threads:v", "1")
+        if output_profile is MP4_OUTPUT_PROFILE:
+            low_memory_args += ("-tune", "zerolatency")
     return (
         *output_profile.video_codec_args,
+        *low_memory_args,
         *_color_metadata_args(),
         *audio_plan.codec_args,
         *audio_plan.filter_args,
     )
 
 
-def build_output_metadata_args(metadata: AudioMetadata | None = None) -> tuple[str, ...]:
+def build_output_metadata_args(
+    metadata: AudioMetadata | None = None,
+    *,
+    include_encoded_by: bool = False,
+) -> tuple[str, ...]:
     args: list[str] = []
     if metadata is not None:
         fields: list[tuple[str, str | None]] = [
@@ -131,6 +147,8 @@ def build_output_metadata_args(metadata: AudioMetadata | None = None) -> tuple[s
             if val and val.strip():
                 args.extend(("-metadata", f"{key}={val.strip()}"))
     args.extend(("-metadata", f"comment={YAATV_PROVENANCE}"))
+    if include_encoded_by:
+        args.extend(("-metadata", f"encoded_by={YAATV_ENCODER}"))
     return tuple(args)
 
 
@@ -187,11 +205,12 @@ def build_ffmpeg_command(
     bg_color: str = DEFAULT_BACKGROUND_COLOR,
     bg_blur: bool = False,
     metadata: AudioMetadata | None = None,
+    low_memory: bool = False,
 ) -> list[str]:
     width, height = target_size
     output_profile = _output_profile(is_prores)
     video_tail = _video_tail(output_profile)
-    metadata_args = build_output_metadata_args(metadata)
+    metadata_args = build_output_metadata_args(metadata, include_encoded_by=is_prores)
 
     if image_path is None:
         color_source = f"color=c={bg_color}:s={width}x{height}"
@@ -210,7 +229,7 @@ def build_ffmpeg_command(
             "1:v:0",
             "-map",
             "0:a:0",
-            *_encode_args(audio_plan, output_profile),
+            *_encode_args(audio_plan, output_profile, low_memory=low_memory),
             *_filter_output_args(
                 f"fps=fps=1:start_time=0,{_color_source_scale(width, height)},{video_tail}",
                 output_duration,
@@ -251,7 +270,7 @@ def build_ffmpeg_command(
             "[v]",
             "-map",
             "2:a:0",
-            *_encode_args(audio_plan, output_profile),
+            *_encode_args(audio_plan, output_profile, low_memory=low_memory),
             *_finish_output_args(
                 output_duration,
                 output_profile,
@@ -286,7 +305,7 @@ def build_ffmpeg_command(
             "[v]",
             "-map",
             "1:a:0",
-            *_encode_args(audio_plan, output_profile),
+            *_encode_args(audio_plan, output_profile, low_memory=low_memory),
             *_finish_output_args(
                 output_duration,
                 output_profile,
@@ -317,7 +336,7 @@ def build_ffmpeg_command(
         "0:v:0",
         "-map",
         "1:a:0",
-        *_encode_args(audio_plan, output_profile),
+        *_encode_args(audio_plan, output_profile, low_memory=low_memory),
         *_filter_output_args(
             video_filter,
             output_duration,

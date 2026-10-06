@@ -144,13 +144,15 @@ If changes land on `main` that conflict with your PR branch:
 ## Versioning
 
 yaatv uses `major.minor.patch` versions.
+Here, "minor" means the middle version component; a small change can still be a
+patch release such as `0.7.1`.
 
 ### Before 1.0
 
 While yaatv is before 1.0, the major version stays `0`.
 
-- Patch: bug fixes, docs, tests, release workflow fixes, and internal hardening that do not change user-facing behavior.
-- Minor: new features, behavior changes, breaking changes, output contract changes, release packaging changes that alter install or download behavior, or removed behavior.
+- Patch: bug fixes, docs, tests, release workflow fixes, internal hardening, and narrowly scoped corrections to existing workflows that preserve normal defaults and output profiles. This can include better recovery from an exceptional failure or additive metadata.
+- Minor: new features or CLI flags, new workflows, changes to normal user-facing behavior, breaking changes, output-format or profile changes, broader output contract changes, release packaging changes that alter install or download behavior, or removed behavior.
 - Major: reserved for the first stable release.
 
 ### After 1.0
