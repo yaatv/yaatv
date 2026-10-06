@@ -839,6 +839,47 @@ def test_failed_encode_shows_ffmpeg_error_tail(
     assert "Invalid data found when processing input" in output
 
 
+@pytest.mark.parametrize("verbose", [False, True])
+def test_memory_allocation_failure_prompts_for_low_memory_retry(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    verbose: bool,
+) -> None:
+    audio_path, image_path, output_path = _mock_quick_encode_run(monkeypatch, tmp_path)
+    stderr = StringIO()
+    commands: list[list[str]] = []
+
+    def encode(command: list[str], **_kwargs: object) -> FFmpegResult:
+        commands.append(command)
+        if len(commands) == 1:
+            return FFmpegResult(1, "x264 [error]: malloc of size 86065408 failed")
+        output_path.write_bytes(b"partial")
+        return FFmpegResult(1, "allocation retry failed")
+
+    monkeypatch.setattr("yaatv.workflow.run_ffmpeg", encode)
+
+    argv = [str(audio_path), str(image_path), "-o", str(output_path), "--resolution", "8k"]
+    if verbose:
+        argv.append("--verbose")
+
+    assert run(
+        argv,
+        stdin=_TtyInput("yes\n"),
+        stderr=stderr,
+    ) == 1
+
+    assert len(commands) == 2
+    assert "-threads:v" not in commands[0]
+    assert commands[1][commands[1].index("-threads:v") + 1] == "1"
+    assert commands[1][commands[1].index("-tune") + 1] == "zerolatency"
+    output = stderr.getvalue()
+    assert "Retry with one H.264 video thread and low-memory tuning?" in output
+    assert "Retrying with lower-memory settings..." in output
+    if not verbose:
+        assert "allocation retry failed" in output
+    assert not output_path.exists()
+
+
 
 def test_failed_verification_removes_newly_created_output(
     monkeypatch: pytest.MonkeyPatch,

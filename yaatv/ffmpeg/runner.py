@@ -86,19 +86,8 @@ def run_ffmpeg(
     stderr: TextIO = sys.stderr,
 ) -> FFmpegResult:
     try:
-        if verbose:
-            completed = subprocess.run(
-                command,
-                check=False,
-                stderr=None,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )  # nosec B603
-            return FFmpegResult(completed.returncode)
-
         process = subprocess.Popen(
-            _progress_command(command),
+            list(command) if verbose else _progress_command(command),
             stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
@@ -119,15 +108,18 @@ def run_ffmpeg(
     last_reported = -10
     for raw_line in process.stderr:
         line = raw_line.rstrip("\r\n")
+        if verbose:
+            stderr.write(raw_line)
+            stderr.flush()
         percent = _progress_percent(line, duration)
-        if percent is not None and percent >= last_reported + 10:
+        if not verbose and percent is not None and percent >= last_reported + 10:
             last_reported = percent - (percent % 10)
             print(f"Encoding: {last_reported}%", file=stderr, flush=True)
         if line.partition("=")[0] not in FFMPEG_PROGRESS_KEYS:
             tail.append(line)
 
     returncode = process.wait()
-    if returncode == 0 and duration is not None:
+    if not verbose and returncode == 0 and duration is not None:
         print("Encoding: 100%", file=stderr, flush=True)
     return FFmpegResult(returncode, "\n".join(line for line in tail if line))
 

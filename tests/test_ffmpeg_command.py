@@ -13,6 +13,7 @@ from tests._support import (
 )
 from yaatv.ffmpeg.command import (
     OUTPUT_PROFILES,
+    YAATV_ENCODER,
     YAATV_PROVENANCE,
     build_ffmpeg_command,
     build_output_metadata_args,
@@ -65,7 +66,7 @@ def test_output_profiles_define_supported_container_contracts() -> None:
 
     assert mov_profile.video_codec_args[:2] == ("-c:v", "prores_ks")
     assert mov_profile.faststart_args == ()
-    assert mov_profile.output_format_args == ("-f", "mov")
+    assert mov_profile.output_format_args == ("-movflags", "use_metadata_tags", "-f", "mov")
     assert mov_profile.pixel_format == "yuv422p10le"
     assert mp4_profile.audio_mode == "aac_lc"
     assert mov_profile.audio_mode == "pcm_s24le"
@@ -163,9 +164,10 @@ def test_media_contract_command_profiles_preserve_branch_invariants(
     assert command[command.index(video_option) + 1] == expected_video, name
 
     if kwargs.get("is_prores"):
-        assert "-movflags" not in command
+        assert command[command.index("-movflags") + 1] == "use_metadata_tags"
         assert command[command.index("-f") + 1] == "mov"
         assert command[command.index("-pix_fmt") + 1] == "yuv422p10le"
+        assert f"encoded_by={YAATV_ENCODER}" in command
     else:
         assert command[command.index("-pix_fmt") + 1] == "yuv420p"
         if options["output_path"] == Path("out.mp4"):
@@ -496,7 +498,7 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
     assert "-b:a" not in command
     assert "-profile:a" not in command
     assert command[command.index("-f") + 1] == "mov"
-    assert "-movflags" not in command
+    assert command[command.index("-movflags") + 1] == "use_metadata_tags"
     assert command[command.index("-vf") + 1] == (
         f"{_video_scale(1920, 1080, aspect='decrease')},"
         "pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,"
@@ -586,6 +588,14 @@ def test_build_output_metadata_args_with_none_or_empty_metadata() -> None:
     empty_meta = AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None)
     args_empty = build_output_metadata_args(empty_meta)
     assert args_empty == ("-metadata", f"comment={YAATV_PROVENANCE}")
+
+    args_with_encoder = build_output_metadata_args(None, include_encoded_by=True)
+    assert args_with_encoder == (
+        "-metadata",
+        f"comment={YAATV_PROVENANCE}",
+        "-metadata",
+        f"encoded_by={YAATV_ENCODER}",
+    )
 
 def test_build_output_metadata_args_with_full_metadata() -> None:
     metadata = AudioMetadata(
@@ -752,4 +762,40 @@ def test_build_ffmpeg_command_includes_metadata_in_all_modes() -> None:
     )
     assert "title=Song Title" in cmd_prores
     assert f"comment={YAATV_PROVENANCE}" in cmd_prores
+    assert f"encoded_by={YAATV_ENCODER}" in cmd_prores
+    assert cmd_prores[cmd_prores.index("-movflags") + 1] == "use_metadata_tags"
     assert cmd_prores[-1] == "out.mov"
+
+
+def test_low_memory_encoding_options_are_profile_specific() -> None:
+    mp4_command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(7680, 4320),
+        audio_plan=_transcode_plan(),
+        overwrite=False,
+        low_memory=True,
+    )
+    assert mp4_command[mp4_command.index("-threads:v") + 1] == "1"
+    assert mp4_command[mp4_command.index("-tune") + 1] == "zerolatency"
+
+    mov_plan = choose_audio_plan(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        pad=0,
+        output_profile=output_profile_for_path(Path("out.mov")),
+    )
+    mov_command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mov"),
+        target_size=(7680, 4320),
+        audio_plan=mov_plan,
+        overwrite=False,
+        is_prores=True,
+        low_memory=True,
+    )
+    assert mov_command[mov_command.index("-threads:v") + 1] == "1"
+    assert "-tune" not in mov_command

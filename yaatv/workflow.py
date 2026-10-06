@@ -57,6 +57,34 @@ PRORES_MINIMUM_DISK_RESERVE_BYTES = 512 * 1024**2
 FAT32_MAX_FILE_SIZE_BYTES = 2**32 - 1
 YOUTUBE_MAX_UPLOAD_DURATION_SECONDS = 12 * 60 * 60
 YOUTUBE_MAX_UPLOAD_SIZE_BYTES = 256 * 1024**3
+MEMORY_ALLOCATION_ERROR_MARKERS = (
+    "cannot allocate memory",
+    "failed to allocate",
+    "malloc",
+    "not enough memory",
+    "out of memory",
+)
+
+
+def _is_memory_allocation_failure(diagnostic: str) -> bool:
+    normalized = diagnostic.casefold()
+    return any(marker in normalized for marker in MEMORY_ALLOCATION_ERROR_MARKERS)
+
+
+def _confirm_low_memory_retry(stdin: TextIO, stderr: TextIO, *, is_prores: bool) -> bool:
+    if not stdin.isatty():
+        return False
+
+    print("FFmpeg could not allocate enough memory.", file=stderr)
+    if is_prores:
+        prompt = "Retry with one ProRes video thread? This may take longer. [y/N] "
+    else:
+        prompt = (
+            "Retry with one H.264 video thread and low-memory tuning? "
+            "This may take longer and reduce compression efficiency. [y/N] "
+        )
+    print(prompt, end="", file=stderr, flush=True)
+    return stdin.readline().strip().casefold() in {"y", "yes"}
 
 
 def resolve_ffmpeg_tools(
@@ -257,6 +285,43 @@ def run(
             print("Encoding...", file=stderr)
             ffmpeg_result = run_ffmpeg(command, verbose=args.verbose, duration=output_duration, stderr=stderr)
             exit_code = int(ffmpeg_result)
+            if exit_code != 0:
+                details = getattr(ffmpeg_result, "stderr_tail", "")
+                if (
+                    _is_memory_allocation_failure(details)
+                    and _confirm_low_memory_retry(stdin, stderr, is_prores=is_prores)
+                ):
+                    _discard_failed_output(
+                        encode_output_path,
+                        existed_before=output_existed_before and encode_output_path == output_path,
+                        replace_allowed=overwrite,
+                        stderr=stderr,
+                    )
+                    retry_command = build_ffmpeg_command(
+                        ffmpeg=ffmpeg,
+                        audio_path=audio_path,
+                        image_path=image_path,
+                        output_path=encode_output_path,
+                        target_size=target_size,
+                        audio_plan=audio_plan,
+                        overwrite=overwrite,
+                        output_duration=output_duration,
+                        is_prores=is_prores,
+                        bg_image_path=bg_image_path,
+                        bg_color=args.bg_color,
+                        bg_blur=args.bg_blur,
+                        metadata=metadata,
+                        low_memory=True,
+                    )
+                    print("Retrying with lower-memory settings...", file=stderr)
+                    ffmpeg_result = run_ffmpeg(
+                        retry_command,
+                        verbose=args.verbose,
+                        duration=output_duration,
+                        stderr=stderr,
+                    )
+                    exit_code = int(ffmpeg_result)
+
             if exit_code != 0:
                 if not args.verbose:
                     details = getattr(ffmpeg_result, "stderr_tail", "")

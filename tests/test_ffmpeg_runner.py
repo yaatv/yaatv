@@ -89,17 +89,30 @@ def test_run_ffmpeg_streams_bounded_progress(monkeypatch: pytest.MonkeyPatch) ->
         "errors": "replace",
     }
 
-def test_run_ffmpeg_verbose_inherits_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_run_ffmpeg_verbose_streams_stderr_and_captures_error_tail(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+    class FakeProcess:
+        stderr = StringIO("ffmpeg verbose log\nx264 [error]: malloc failed\n")
+
+        def wait(self) -> int:
+            return 1
+
+    def fake_popen(command: list[str], **kwargs: object) -> FakeProcess:
+        captured["command"] = command
         captured.update(kwargs)
-        return subprocess.CompletedProcess(command, 0)
+        return FakeProcess()
 
-    monkeypatch.setattr("subprocess.run", fake_run)
+    monkeypatch.setattr("subprocess.Popen", fake_popen)
+    output = StringIO()
 
-    assert run_ffmpeg(["ffmpeg", "-version"], verbose=True) == 0
-    assert captured["stderr"] is None
+    result = run_ffmpeg(["ffmpeg", "-version"], verbose=True, stderr=output)
+
+    assert result == 1
+    assert result.stderr_tail == "ffmpeg verbose log\nx264 [error]: malloc failed"
+    assert captured["command"] == ["ffmpeg", "-version"]
+    assert captured["stderr"] == subprocess.PIPE
+    assert output.getvalue() == "ffmpeg verbose log\nx264 [error]: malloc failed\n"
 
 def test_run_ffmpeg_without_duration_streams_silently(monkeypatch: pytest.MonkeyPatch) -> None:
     class FakeProcess:
