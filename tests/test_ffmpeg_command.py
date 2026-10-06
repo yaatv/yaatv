@@ -56,6 +56,9 @@ def test_output_profiles_define_supported_container_contracts() -> None:
     mov_profile = output_profile_for_path(Path("archive.mov"))
 
     assert mp4_profile.video_codec_args[:2] == ("-c:v", "libx264")
+    assert mp4_profile.video_codec_args[2:4] == ("-profile:v", "high")
+    assert mp4_profile.video_codec_args[4:6] == ("-preset", "slow")
+    assert mp4_profile.video_codec_args[6:8] == ("-crf", "16")
     assert mp4_profile.faststart_args == ("-movflags", "+faststart")
     assert mp4_profile.output_format_args == ()
     assert mp4_profile.pixel_format == "yuv420p"
@@ -211,6 +214,7 @@ def test_transcode_command_uses_required_youtube_settings() -> None:
     assert command[command.index("-map") + 1] == "0:v:0"
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "1:a:0"
     assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-profile:v") + 1] == "high"
     assert command[command.index("-preset") + 1] == "slow"
     assert command[command.index("-crf") + 1] == "16"
     assert command[command.index("-pix_fmt") + 1] == "yuv420p"
@@ -406,6 +410,7 @@ def test_color_only_command_uses_generated_video_stream() -> None:
         "format=yuv420p,"
         "setparams=range=tv:color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     )
+    assert "flags=lanczos" not in command[command.index("-vf") + 1]
     assert command[command.index("-map") + 1] == "1:v:0"
     assert command[command.index("-map", command.index("-map") + 1) + 1] == "0:a:0"
     assert command[command.index("-t") + 1] == "30"
@@ -469,7 +474,7 @@ def test_prores_command_uses_correct_encoder_settings() -> None:
     )
 
     assert command[command.index("-c:v") + 1] == "prores_ks"
-    assert command[command.index("-profile:v") + 1] == "2"
+    assert command[command.index("-profile:v") + 1] == "3"
     assert command[command.index("-pix_fmt") + 1] == "yuv422p10le"
     assert command[command.index("-vendor") + 1] == "apl0"
     assert command[command.index("-f") + 1] == "mov"
@@ -530,9 +535,30 @@ def test_h264_command_unchanged_without_is_prores() -> None:
     )
 
     assert command[command.index("-c:v") + 1] == "libx264"
+    assert command[command.index("-profile:v") + 1] == "high"
     assert command[command.index("-pix_fmt") + 1] == "yuv420p"
     assert command[command.index("-movflags") + 1] == "+faststart"
     assert "-f" not in command or command[command.index("-f") + 1] != "mov"
+
+@pytest.mark.parametrize("mode", ["cover", "background", "blurred"])
+def test_user_image_scaling_uses_lanczos(mode: str) -> None:
+    command = build_ffmpeg_command(
+        ffmpeg="ffmpeg",
+        audio_path=Path("track.flac"),
+        image_path=Path("cover.jpg"),
+        output_path=Path("out.mp4"),
+        target_size=(1920, 1080),
+        audio_plan=_transcode_plan(),
+        overwrite=False,
+        bg_image_path=Path("background.jpg") if mode == "background" else None,
+        bg_blur=mode == "blurred",
+    )
+
+    filter_option = "-filter_complex" if mode != "cover" else "-vf"
+    filter_graph = command[command.index(filter_option) + 1]
+    assert "flags=lanczos" in filter_graph
+    if mode in {"background", "blurred"}:
+        assert filter_graph.count("flags=lanczos") == 2
 
 def test_build_output_metadata_args_with_none_or_empty_metadata() -> None:
     args_none = build_output_metadata_args(None)

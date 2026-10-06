@@ -172,3 +172,24 @@ def test_output_size_maps_resolution_and_aspect() -> None:
     assert output_size("1080p", "16:9") == (1920, 1080)
     assert output_size("1440p", "square") == (1440, 1440)
     assert output_size("4k", "9:16") == (2160, 3840)
+
+@pytest.mark.parametrize(
+    ("aspect", "expected_size"),
+    [("16:9", (7680, 4320)), ("square", (4320, 4320)), ("9:16", (4320, 7680))],
+)
+def test_8k_output_size_preserves_each_aspect_geometry(
+    aspect: str, expected_size: tuple[int, int]
+) -> None:
+    assert output_size("8k", aspect) == expected_size
+
+def test_small_cover_warning_reports_8k_upscaling() -> None:
+    warnings = quality_warnings(
+        AudioMetadata(codec="flac", bitrate=900_000, sample_rate=44_100, artist=None, title=None),
+        image_size=(1920, 1080),
+        target_size=output_size("8k", "16:9"),
+    )
+
+    assert warnings == [
+        "cover image is 1920x1080; FFmpeg will upscale it for 7680x4320. "
+        "Consider using an image at least 7680x4320"
+    ]

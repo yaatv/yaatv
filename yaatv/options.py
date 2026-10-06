@@ -64,6 +64,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
   yaatv audio.flac cover.jpg
   yaatv -a audio.flac -i cover.jpg -o output.mp4
   yaatv -a episode.wav -i cover.jpg --resolution 1440p
+  yaatv -a mix.wav -i cover.png --resolution 8k
   yaatv -a short.wav -i cover.jpg --aspect 9:16
   yaatv -a mix.wav -i cover.jpg --bg-blur
   yaatv -a session.mp3 -i art.jpg -o upload.mov
@@ -103,7 +104,7 @@ def parse_args(argv: Sequence[str] | None = None) -> Config:
         "--resolution",
         choices=tuple(RESOLUTIONS),
         default="1080p",
-        help="Output resolution: 1080p, 1440p, or 4k",
+        help="Output resolution: 1080p, 1440p, 4k, or 8k",
     )
     canvas_group.add_argument(
         "--aspect",

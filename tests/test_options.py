@@ -15,6 +15,16 @@ def test_parse_args_accepts_positional_files() -> None:
     assert args.resolution == "4k"
     assert args.aspect == "square"
 
+def test_parse_args_accepts_8k_and_keeps_1080p_default() -> None:
+    assert parse_args(["-a", "track.wav", "-i", "cover.png", "--resolution", "8k"]).resolution == "8k"
+    assert parse_args(["-a", "track.wav", "-i", "cover.png"]).resolution == "1080p"
+
+def test_parse_args_rejects_unsupported_resolution(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        parse_args(["-a", "track.wav", "-i", "cover.png", "--resolution", "16k"])
+
+    assert "invalid choice: '16k'" in capsys.readouterr().err
+
 def test_parse_args_accepts_scry_without_files() -> None:
     args = parse_args(["--scry"])
 
@@ -87,6 +97,8 @@ def test_help_includes_examples(capsys: pytest.CaptureFixture[str]) -> None:
     assert "examples:" in help_text
     assert "yaatv audio.flac cover.jpg" in help_text
     assert "yaatv --scry" in help_text
+    assert "1080p, 1440p, 4k, or 8k" in help_text
+    assert "--resolution 8k" in help_text
 
 def test_help_mentions_scry_for_audio_and_image_options(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
