@@ -99,11 +99,6 @@ def _drag_drop_media_kind(path: Path) -> str | None:
         return None
     return "audio"
 
-# ---------------------------------------------------------------------------
-# 7. Media probing and metadata extraction
-# Mutagen audio tag reading, embedded cover art, and Pillow image validation.
-# ---------------------------------------------------------------------------
-
 
 def validate_image(path: Path, label: str = "Cover image") -> tuple[int, int]:
     try:

@@ -16,11 +16,6 @@ from .ffmpeg.tools import (
 )
 from .models import ToolHealth, YaatvError
 
-# ---------------------------------------------------------------------------
-# 5. System environment and diagnostics (--scry)
-# Environment health inspection and scry diagnostic reporting.
-# ---------------------------------------------------------------------------
-
 
 def run_scry(stderr: TextIO = sys.stderr) -> int:
     failure = False

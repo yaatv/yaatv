@@ -4,11 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-# ---------------------------------------------------------------------------
-# 2. Data models and exceptions
-# Dataclasses and custom exception types used across the processing pipeline.
-# ---------------------------------------------------------------------------
-
 
 class YaatvError(Exception):
     """An expected user-facing failure."""

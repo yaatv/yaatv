@@ -191,12 +191,6 @@ def open_output_folder(output_path: Path, stderr: TextIO) -> None:
         print(f"warning: could not open output folder: {exc}", file=stderr)
 
 
-# ---------------------------------------------------------------------------
-# 11. Summary reporting and display formatting
-# Terminal output formatting for durations, file sizes, and media stream stats.
-# ---------------------------------------------------------------------------
-
-
 def format_file_details(output_path: Path, duration: float | None) -> str | None:
     details: list[str] = []
     try:

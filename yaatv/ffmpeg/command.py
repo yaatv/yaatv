@@ -9,11 +9,6 @@ from ..planning import DEFAULT_BACKGROUND_COLOR
 YAATV_PROVENANCE = "Created with yaatv.org"
 YAATV_ENCODER = "yaatv.org"
 
-# ---------------------------------------------------------------------------
-# 9. FFmpeg command and filtergraph construction
-# Building structured command arguments and video/audio filtergraphs.
-# ---------------------------------------------------------------------------
-
 MP4_OUTPUT_PROFILE = OutputProfile(
     name="mp4",
     pixel_format="yuv420p",

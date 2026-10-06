@@ -195,15 +195,6 @@ from .planning import output_size as output_size
 from .planning import quality_warnings as quality_warnings
 from .workflow import resolve_ffmpeg_tools as resolve_ffmpeg_tools
 
-# ---------------------------------------------------------------------------
-# 1. Constants and presets
-# Supported resolutions, aspect ratios, bitrate thresholds, and tool URLs.
-# ---------------------------------------------------------------------------
-
-
-
-
-
 
 def run(
     argv: Sequence[str] | None = None,
