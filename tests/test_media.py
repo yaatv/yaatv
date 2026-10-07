@@ -1,8 +1,10 @@
+import base64
 import re
 import wave
 from pathlib import Path
 
 import pytest
+from mutagen.flac import Picture as FLACPicture
 from PIL import Image
 
 from tests._support import _image_bytes
@@ -15,6 +17,19 @@ from yaatv.media import (
 )
 from yaatv.models import YaatvError
 from yaatv.planning import quality_warnings
+
+
+def _metadata_block_picture_comment(
+    image_data: bytes,
+    *,
+    picture_type: int = 0,
+    mime: str = "image/jpeg",
+) -> str:
+    picture = FLACPicture()
+    picture.type = picture_type
+    picture.mime = mime
+    picture.data = image_data
+    return base64.b64encode(picture.write()).decode("ascii")
 
 
 def test_read_audio_metadata_confirmed_pcm_wav_suppresses_low_bitrate_warning(
@@ -479,6 +494,97 @@ def test_extract_embedded_cover_uses_apic_tag(
     assert cover_path is not None
     assert cover_path.parent == output_dir
     assert validate_image(cover_path) == (16, 16)
+
+
+def test_extract_embedded_cover_uses_metadata_block_picture_tag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    image_data = _image_bytes()
+    audio = type(
+        "FakeAudio",
+        (),
+        {"pictures": [], "tags": {"metadata_block_picture": [_metadata_block_picture_comment(image_data)]}},
+    )()
+    audio_path = tmp_path / "track.opus"
+    output_dir = tmp_path / "covers"
+    output_dir.mkdir()
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
+
+    cover_path = extract_embedded_cover(audio_path, output_dir)
+
+    assert cover_path == output_dir / "embedded-cover-1.jpg"
+    assert cover_path.read_bytes() == image_data
+    assert validate_image(cover_path) == (16, 16)
+
+
+def test_extract_embedded_cover_skips_invalid_metadata_block_picture_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    valid_picture = type("FakePicture", (), {"data": _image_bytes(), "mime": "image/jpeg"})()
+    audio = type(
+        "FakeAudio",
+        (),
+        {"pictures": [], "tags": {"metadata_block_picture": ["not base64"], "APIC:": valid_picture}},
+    )()
+    audio_path = tmp_path / "track.opus"
+    output_dir = tmp_path / "covers"
+    output_dir.mkdir()
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
+
+    cover_path = extract_embedded_cover(audio_path, output_dir)
+
+    assert cover_path == output_dir / "embedded-cover-2.jpg"
+    assert validate_image(cover_path) == (16, 16)
+    assert not (output_dir / "embedded-cover-1.jpg").exists()
+
+
+def test_extract_embedded_cover_prefers_front_metadata_block_picture(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    back_cover = _metadata_block_picture_comment(
+        _image_bytes("PNG"), picture_type=4, mime="image/png"
+    )
+    front_cover = _metadata_block_picture_comment(_image_bytes(), picture_type=3)
+    audio = type(
+        "FakeAudio",
+        (),
+        {"pictures": [], "tags": {"metadata_block_picture": [back_cover, front_cover]}},
+    )()
+    audio_path = tmp_path / "track.ogg"
+    output_dir = tmp_path / "covers"
+    output_dir.mkdir()
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
+
+    cover_path = extract_embedded_cover(audio_path, output_dir)
+
+    assert cover_path == output_dir / "embedded-cover-1.jpg"
+    assert cover_path.read_bytes() == _image_bytes()
+    assert not (output_dir / "embedded-cover-2.png").exists()
+
+
+def test_extract_embedded_cover_rejects_invalid_metadata_block_picture_candidates(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    invalid_picture = base64.b64encode(b"not a FLAC picture block").decode("ascii")
+    audio = type(
+        "FakeAudio",
+        (),
+        {"pictures": [], "tags": {"metadata_block_picture": [invalid_picture]}},
+    )()
+    audio_path = tmp_path / "track.opus"
+    output_dir = tmp_path / "covers"
+    output_dir.mkdir()
+    monkeypatch.setattr("yaatv.media.MutagenFile", lambda _path: audio)
+
+    with pytest.raises(YaatvError, match=f"Could not read embedded cover art: {re.escape(str(audio_path))}"):
+        extract_embedded_cover(audio_path, output_dir)
+
+    assert not (output_dir / "embedded-cover-1.jpg").exists()
+
 
 def test_extract_embedded_cover_skips_invalid_candidate(
     monkeypatch: pytest.MonkeyPatch,

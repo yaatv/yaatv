@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import struct
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
 from mutagen import File as MutagenFile
 from mutagen import MutagenError
+from mutagen.flac import Picture as FLACPicture
 from PIL import Image, UnidentifiedImageError
 
 from .models import AudioMetadata, YaatvError, _float_or_none, _int_or_none, _string_or_none
@@ -220,6 +224,9 @@ def _embedded_cover_candidates(audio: object) -> Iterable[tuple[bytes, str | Non
         if isinstance(value, bytes | bytearray):
             yield bytes(value), None, False
 
+    for value in _tag_values(tags, ("metadata_block_picture",)):
+        yield _metadata_block_picture_candidate(value)
+
     values = tags.values() if hasattr(tags, "values") else ()
     for value in values:
         image_data = getattr(value, "data", None)
@@ -229,6 +236,32 @@ def _embedded_cover_candidates(audio: object) -> Iterable[tuple[bytes, str | Non
                 _string_or_none(getattr(value, "mime", None)),
                 _is_front_cover_picture(value),
             )
+
+
+def _metadata_block_picture_candidate(value: object) -> tuple[bytes, str | None, bool]:
+    if isinstance(value, str):
+        try:
+            encoded_picture = value.encode("ascii")
+        except UnicodeEncodeError:
+            return b"", None, False
+    elif isinstance(value, bytes):
+        encoded_picture = value
+    else:
+        return b"", None, False
+
+    try:
+        picture_data = base64.b64decode(encoded_picture, validate=True)
+        picture = FLACPicture(picture_data)
+        if picture.write() != picture_data:
+            return b"", None, False
+    except (binascii.Error, MutagenError, OverflowError, ValueError, struct.error, TypeError):
+        return b"", None, False
+
+    return (
+        picture.data,
+        _string_or_none(picture.mime),
+        _is_front_cover_picture(picture),
+    )
 
 
 def _is_front_cover_picture(picture: object) -> bool:
