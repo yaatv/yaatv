@@ -200,6 +200,11 @@ def test_install_uses_stable_windows_executable_name_and_user_registry_path(
     source.write_bytes(b"windows executable")
     registry = _FakeRegistry("C:/Windows;C:/Tools")
     stderr = StringIO()
+    environment_notifications: list[str] = []
+
+    def notify_environment_change() -> bool:
+        environment_notifications.append(registry.path_value)
+        return True
 
     destination = install_yaatv(
         stderr=stderr,
@@ -208,6 +213,7 @@ def test_install_uses_stable_windows_executable_name_and_user_registry_path(
         home=tmp_path,
         source_executable=source,
         winreg_module=registry,
+        notify_windows_environment_change=notify_environment_change,
     )
 
     expected_dir = local_app_data / "Programs" / "yaatv" / "bin"
@@ -217,6 +223,7 @@ def test_install_uses_stable_windows_executable_name_and_user_registry_path(
     assert registry.path_value.startswith("C:/Windows;C:/Tools;")
     assert str(expected_dir) in registry.path_value
     assert "current-user PATH" in stderr.getvalue()
+    assert environment_notifications == [registry.path_value]
 
 
 @pytest.mark.parametrize(

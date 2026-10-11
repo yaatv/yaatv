@@ -17,6 +17,14 @@ Browser converter: <https://convert.yaatv.org>
 
 ## Downloads
 
+Windows x64 users can install yaatv from PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/yaatv/yaatv/main/install.ps1 | iex
+```
+
+See [Installation](docs/installation.md) for verification details and installation methods for other platforms.
+
 Download a portable ZIP or a single-file executable for your computer from the latest release:
 
 <https://github.com/yaatv/yaatv/releases/latest>

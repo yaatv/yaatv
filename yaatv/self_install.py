@@ -10,7 +10,7 @@ import shutil
 import stat
 import sys
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -49,6 +49,7 @@ def install_yaatv(
     home: Path | None = None,
     source_executable: Path | None = None,
     winreg_module: Any | None = None,
+    notify_windows_environment_change: Callable[[], bool] | None = None,
 ) -> Path:
     """Install this onefile executable for the current user and configure PATH.
 
@@ -73,6 +74,18 @@ def install_yaatv(
         home_dir,
         winreg_module=winreg_module,
     )
+    if path_changed and current_platform == "Windows":
+        notify = notify_windows_environment_change or _broadcast_windows_environment_change
+        try:
+            notified = notify()
+        except OSError:
+            notified = False
+        if not notified:
+            print(
+                "Windows saved the current-user PATH but did not confirm the environment-change notification. "
+                "Restart the terminal host before running yaatv from PATH.",
+                file=stderr,
+            )
 
     if copied:
         print(f"Installed yaatv to {destination}", file=stderr)
@@ -345,6 +358,43 @@ def _add_windows_user_path(
     except OSError as exc:
         raise YaatvError(f"Could not update the current-user PATH: {exc}") from exc
     return True
+
+
+def _broadcast_windows_environment_change() -> bool:
+    """Ask Windows applications to refresh environment values after a user PATH edit."""
+    if os.name != "nt":
+        return False
+
+    import ctypes
+
+    try:
+        win_dll = getattr(ctypes, "WinDLL", None)
+        if win_dll is None:
+            return False
+        send_message_timeout = win_dll("user32", use_last_error=True).SendMessageTimeoutW
+        send_message_timeout.argtypes = (
+            ctypes.c_void_p,
+            ctypes.c_uint,
+            ctypes.c_size_t,
+            ctypes.c_wchar_p,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.POINTER(ctypes.c_size_t),
+        )
+        send_message_timeout.restype = ctypes.c_ssize_t
+        result = ctypes.c_size_t()
+        sent = send_message_timeout(
+            ctypes.c_void_p(0xFFFF),
+            0x001A,
+            0,
+            "Environment",
+            0x0002,
+            5000,
+            ctypes.byref(result),
+        )
+        return sent != 0
+    except (AttributeError, OSError):
+        return False
 
 
 def _path_contains(

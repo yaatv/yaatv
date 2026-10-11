@@ -84,6 +84,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Test PowerShell installer helpers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/test_install.ps1
+
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:

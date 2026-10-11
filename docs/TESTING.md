@@ -69,6 +69,11 @@ onefile build marker, reject onedir and Python/source runs, and verify per-user 
 updates without changing the developer machine's PATH. The onefile build gets its marker from the release
 workflow's PyInstaller data files.
 
+`tests/test_install.ps1` checks the bootstrap installer's architecture mapping, stable release validation,
+exact asset selection, checksum and signature validation, mocked download response/redirect handling, and
+fresh PATH construction. CI runs it on Windows; it does not download release files or modify an installed
+copy or persistent PATH.
+
 ## Update notices
 
 `tests/test_update.py` and `tests/test_workflow.py` mock all network access. They cover the cache schema and

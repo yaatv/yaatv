@@ -75,6 +75,25 @@ def test_readme_documents_zip_and_single_file_releases() -> None:
     assert "--install" in readme
 
 
+def test_installation_documents_use_the_windows_installer_and_stable_agent_prompt() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    installation = (repo_root / "docs" / "installation.md").read_text(encoding="utf-8")
+    agent_install = (repo_root / "docs" / "agent-install.md").read_text(encoding="utf-8")
+
+    installer_url = "https://raw.githubusercontent.com/yaatv/yaatv/main/install.ps1"
+    agent_url = "https://raw.githubusercontent.com/yaatv/yaatv/main/docs/agent-install.md"
+    assert installer_url in readme
+    assert "[Installation](docs/installation.md)" in readme
+    assert installer_url in installation
+    assert agent_url in installation
+    assert installer_url in agent_install
+    assert "remote sandbox" in agent_install
+    assert "yaatv --version" in agent_install
+    assert "pip install yaatv" not in installation.lower()
+    assert "pip install yaatv" not in agent_install.lower()
+
+
 
 def test_release_workflow_checks_tag_version_before_building() -> None:
     workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
@@ -127,6 +146,7 @@ def test_ci_workflow_includes_cross_platform_matrix() -> None:
     workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml").read_text(
         encoding="utf-8"
     )
+    python_job, os_job = workflow.split("\n  os:", maxsplit=1)
 
     assert "runs-on: ${{ matrix.os }}" in workflow
     assert "ubuntu-latest" in workflow
@@ -145,6 +165,10 @@ def test_ci_workflow_includes_cross_platform_matrix() -> None:
     assert "sudo apt-get install --yes ffmpeg" in workflow
     assert 'pytest -m "not integration"' in workflow
     assert "scripts/check.py" in workflow
+    assert "Test PowerShell installer helpers" not in python_job
+    assert "Test PowerShell installer helpers" in os_job
+    assert "if: runner.os == 'Windows'" in os_job
+    assert "./tests/test_install.ps1" in os_job
 
 
 
