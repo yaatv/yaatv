@@ -49,3 +49,8 @@ def test_equal_results_hash_together() -> None:
 def test_results_differing_in_a_field_do_not_collide_in_a_set() -> None:
     results = {FFmpegResult(0, "x"), FFmpegResult(1, "x"), FFmpegResult(0, "y")}
     assert len(results) == 3
+
+
+def test_a_result_hashes_like_the_int_it_equals() -> None:
+    # `__hash__` hashes only the return code, so the `== int` arm above is hash-consistent too.
+    assert hash(FFmpegResult(0, "x")) == hash(0)

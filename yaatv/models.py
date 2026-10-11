@@ -50,9 +50,9 @@ class FFmpegResult:
         return (self.returncode, self.stderr_tail) == (other.returncode, other.stderr_tail)
 
     def __hash__(self) -> int:
-        # Redefining `__eq__` sets `__hash__` to None, so it has to be given back; the pair has
-        # to agree, so hash what `__eq__` compares.
-        return hash((self.returncode, self.stderr_tail))
+        # Redefining `__eq__` sets `__hash__` to None, so it has to be given back. Hash only the
+        # return code, so a result stays hash-equal to the int it equals.
+        return hash(self.returncode)
 
     def __int__(self) -> int:
         return self.returncode
