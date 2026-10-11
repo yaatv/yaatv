@@ -41,7 +41,9 @@ class FFmpegResult:
     def __eq__(self, other: object) -> bool:
         if isinstance(other, int):
             return self.returncode == other
-        return super().__eq__(other)
+        if isinstance(other, FFmpegResult):
+            return self.returncode == other.returncode and self.stderr_tail == other.stderr_tail
+        return NotImplemented
 
     def __int__(self) -> int:
         return self.returncode

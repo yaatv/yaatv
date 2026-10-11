@@ -14,9 +14,31 @@ from yaatv.ffmpeg.runner import (
     run_ffmpeg,
     verify_output_stats,
 )
-from yaatv.models import OutputStats, YaatvError
+from yaatv.models import FFmpegResult, OutputStats, YaatvError
 from yaatv.output import format_output_stats
 from yaatv.planning import output_size
+
+
+def test_ffmpeg_result_equal_values() -> None:
+    first = FFmpegResult(0, "success")
+    second = FFmpegResult(0, "success")
+
+    assert first == second
+
+
+def test_ffmpeg_result_unequal_values() -> None:
+    result = FFmpegResult(0, "success")
+
+    assert result != FFmpegResult(1, "success")
+    assert result != FFmpegResult(0, "different error")
+
+
+def test_ffmpeg_result_compares_with_integer() -> None:
+    result = FFmpegResult(0, "success")
+
+    assert result == 0
+    assert result != 1
+
 
 
 def test_quote_command_uses_posix_quoting(monkeypatch: pytest.MonkeyPatch) -> None:
