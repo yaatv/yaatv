@@ -326,8 +326,15 @@ def _rate_or_none(value: object) -> float | None:
     try:
         if "/" in text:
             numerator, denominator = text.split("/", 1)
-            denominator_value = float(denominator)
-            return float(numerator) / denominator_value if denominator_value else None
-        return float(text)
+            numerator_value = _float_or_none(numerator)
+            denominator_value = _float_or_none(denominator)
+            if (
+                denominator_value is None
+                or numerator_value is None
+                or denominator_value == 0
+            ):
+                return None
+            return _float_or_none(numerator_value / denominator_value)
+        return _float_or_none(text)
     except ValueError:
         return None

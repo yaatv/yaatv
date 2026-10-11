@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import isfinite
 from pathlib import Path
 from typing import Any, Literal
 
@@ -167,8 +168,11 @@ def _int_or_none(value: Any) -> int | None:
 
 
 def _float_or_none(value: Any) -> float | None:
+    if value is None:
+        return None
     try:
-        return float(value) if value is not None else None
+        result = float(value)
+        return result if isfinite(result) else None
     except (TypeError, ValueError):
         return None
 
