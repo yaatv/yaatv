@@ -17,6 +17,8 @@ Browser converter: <https://convert.yaatv.org>
 
 ## Downloads
 
+The Python package is being prepared for PyPI, but it is not available there yet. Use one of the release installation methods below.
+
 Windows x64 users can install yaatv from PowerShell:
 
 ```powershell
@@ -24,6 +26,10 @@ irm https://raw.githubusercontent.com/yaatv/yaatv/main/install.ps1 | iex
 ```
 
 See [Installation](docs/installation.md) for verification details and installation methods for other platforms.
+
+To install with a coding agent, ask it:
+
+> Fetch and execute the appropriate instructions to install yaatv from: https://raw.githubusercontent.com/yaatv/yaatv/main/docs/agent-install.md
 
 Download a portable ZIP or a single-file executable for your computer from the latest release:
 

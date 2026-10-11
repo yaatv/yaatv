@@ -5,6 +5,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      publish_to_pypi:
+        description: Publish the validated Python distributions to PyPI using Trusted Publishing
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -66,6 +72,106 @@ jobs:
 
       - name: Run tests
         run: python -m pytest
+
+  python-distributions:
+    name: Build and validate Python distributions
+    needs: gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Install distribution tooling
+        run: python -m pip install -r requirements-pypi.txt
+
+      - name: Build distributions
+        run: python -m build --no-isolation
+
+      - name: Validate distribution metadata and contents
+        run: |
+          python scripts/validate_distributions.py
+          python -m twine check dist/*
+
+      - name: Install and smoke-test each built distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          distributions=(dist/*.whl dist/*.tar.gz)
+          if [[ "${#distributions[@]}" -ne 2 ]]; then
+            echo "Expected one wheel and one source distribution; found ${#distributions[@]}." >&2
+            exit 1
+          fi
+
+          expected_version="$(python -c 'from yaatv import __version__; print(__version__)')"
+          index=0
+          for distribution in "${distributions[@]}"; do
+            environment="$RUNNER_TEMP/yaatv-distribution-$index"
+            python -m venv "$environment"
+            "$environment/bin/python" -m pip install --disable-pip-version-check "$GITHUB_WORKSPACE/$distribution"
+
+            (
+              cd "$RUNNER_TEMP"
+              expected_output="yaatv $expected_version"
+              cli_version="$("$environment/bin/yaatv" --version)"
+              module_version="$("$environment/bin/python" -m yaatv --version)"
+              if [[ "$cli_version" != "$expected_output" || "$module_version" != "$expected_output" ]]; then
+                echo "Installed distribution version output does not match $expected_output." >&2
+                exit 1
+              fi
+              "$environment/bin/yaatv" --help >/dev/null
+              "$environment/bin/python" -m yaatv --help >/dev/null
+
+              installed_module="$("$environment/bin/python" -c 'import yaatv; print(yaatv.__file__)')"
+              case "$installed_module" in
+                "$GITHUB_WORKSPACE"/*)
+                  echo "Smoke test imported yaatv from the checkout instead of the installed distribution." >&2
+                  exit 1
+                  ;;
+              esac
+            )
+            index=$((index + 1))
+          done
+
+      - name: Upload validated Python distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pypi-distributions
+          path: dist/
+          if-no-files-found: error
+
+  publish-pypi:
+    name: Publish Python distributions to PyPI
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.publish_to_pypi &&
+      startsWith(github.ref, 'refs/tags/v')
+    needs: [gate, python-distributions]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/yaatv/
+    permissions:
+      id-token: write
+    steps:
+      - name: Download validated Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: pypi-distributions
+          path: dist/
+
+      - name: Publish distributions using Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: dist/
+          print-hash: true
 
   build:
     name: Build ${{ matrix.package_name }}
@@ -444,7 +550,7 @@ jobs:
   release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [gate, build]
+    needs: [gate, python-distributions, build]
     runs-on: ubuntu-latest
     environment: release
     permissions:

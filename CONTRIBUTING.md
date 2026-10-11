@@ -173,6 +173,12 @@ store a second version. The README publishing example uses the placeholder
 The release workflow imports `yaatv.__version__` and refuses a tag build when the
 tag's version does not match it.
 
+### Python package publication
+
+The `yaatv` PyPI project is pending. The release workflow builds and validates the source distribution and wheel, then keeps those same artifacts for any later upload. A tag push does not publish to PyPI. To publish intentionally, dispatch the `Release` workflow using a version tag and enable its `publish_to_pypi` input. The upload job uses GitHub OIDC through the `pypi` environment and does not use a PyPI API token.
+
+Before the first upload, the PyPI project must be available and configured with a Trusted Publisher for owner `yaatv`, repository `yaatv`, workflow `.github/workflows/release.yml`, and environment `pypi`. Apply any desired approval rules to the GitHub `pypi` environment. Do not add a long-lived PyPI token.
+
 ### Windows Defender and SmartScreen false positives
 
 Because standalone release binaries are generated with PyInstaller without a commercial code-signing certificate, Windows Defender or SmartScreen may occasionally flag new releases until download reputation accumulates.

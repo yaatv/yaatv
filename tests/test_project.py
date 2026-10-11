@@ -41,6 +41,24 @@ def test_project_requires_python_311() -> None:
     assert data["tool"]["mypy"]["python_version"] == "3.11"
 
 
+def test_project_has_useful_pypi_metadata() -> None:
+    project_path = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    project = tomllib.loads(project_path.read_text(encoding="utf-8"))["project"]
+
+    assert project["name"] == "yaatv"
+    assert set(project["keywords"]) == {"audio", "cover art", "ffmpeg", "video", "youtube"}
+    assert project["urls"] == {
+        "Repository": "https://github.com/yaatv/yaatv",
+        "Issues": "https://github.com/yaatv/yaatv/issues",
+        "Documentation": "https://github.com/yaatv/yaatv/tree/main/docs",
+        "Releases": "https://github.com/yaatv/yaatv/releases",
+    }
+    classifiers = set(project["classifiers"])
+    assert "Development Status :: 4 - Beta" in classifiers
+    assert "Programming Language :: Python :: 3.11" in classifiers
+    assert "Programming Language :: Python :: 3.14" in classifiers
+
+
 
 def test_project_declares_dynamic_version_from_runtime() -> None:
     text = (Path(__file__).resolve().parents[1] / "pyproject.toml").read_text(encoding="utf-8")
@@ -88,10 +106,25 @@ def test_installation_documents_use_the_windows_installer_and_stable_agent_promp
     assert installer_url in installation
     assert agent_url in installation
     assert installer_url in agent_install
+    assert agent_url in readme
     assert "remote sandbox" in agent_install
     assert "yaatv --version" in agent_install
+    assert "not available there yet" in readme
+    assert "not available yet" in agent_install
     assert "pip install yaatv" not in installation.lower()
     assert "pip install yaatv" not in agent_install.lower()
+
+
+def test_agent_install_discovers_release_assets_for_the_current_architecture() -> None:
+    agent_install = (Path(__file__).resolve().parents[1] / "docs" / "agent-install.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "https://api.github.com/repos/yaatv/yaatv/releases/latest" in agent_install
+    assert "browser_download_url" in agent_install
+    assert "current operating system and architecture" in agent_install
+    for filename in ("yaatv-linux-x64", "yaatv-macos-x64", "yaatv-macos-arm64"):
+        assert filename not in agent_install
 
 
 
@@ -103,6 +136,58 @@ def test_release_workflow_checks_tag_version_before_building() -> None:
     assert "Validate release tag version" in workflow
     assert "tag_version=\"${GITHUB_REF_NAME#v}\"" in workflow
     assert "__version__" in workflow
+
+
+def test_release_workflow_validates_and_reuses_python_distributions_for_pypi() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    distribution_job = workflow.split("\n  python-distributions:\n", maxsplit=1)[1].split(
+        "\n  publish-pypi:\n", maxsplit=1
+    )[0]
+    publish_job = workflow.split("\n  publish-pypi:\n", maxsplit=1)[1].split("\n  build:\n", maxsplit=1)[0]
+
+    assert distribution_job.count("python -m build --no-isolation") == 1
+    assert "pip install -r requirements-pypi.txt" in distribution_job
+    assert "scripts/validate_distributions.py" in distribution_job
+    assert "python -m twine check dist/*" in distribution_job
+    assert "python -m venv" in distribution_job
+    assert '"$environment/bin/yaatv" --version' in distribution_job
+    assert '"$environment/bin/python" -m yaatv --version' in distribution_job
+    assert '"$environment/bin/python" -m yaatv --help' in distribution_job
+    assert "name: pypi-distributions" in distribution_job
+
+    assert "github.event_name == 'workflow_dispatch'" in publish_job
+    assert "inputs.publish_to_pypi" in publish_job
+    assert "startsWith(github.ref, 'refs/tags/v')" in publish_job
+    assert "id-token: write" in publish_job
+    assert "actions/download-artifact@" in publish_job
+    assert "name: pypi-distributions" in publish_job
+    assert "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2" in publish_job
+    assert "python -m build" not in publish_job
+    assert "id-token: write" not in workflow.split("\njobs:\n", maxsplit=1)[0]
+
+    release_job = workflow.split("\n  release:\n", maxsplit=1)[1]
+    assert "needs: [gate, python-distributions, build]" in release_job
+
+
+def test_pypi_distribution_toolchain_is_pinned_and_separate_from_runtime() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    requirements = (repo_root / "requirements-pypi.txt").read_text(encoding="utf-8")
+    project = tomllib.loads((repo_root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+
+    for requirement in (
+        "build==1.6.1",
+        "pip==26.2.1",
+        "setuptools==84.0.0",
+        "twine==7.0.0",
+        "wheel==0.48.0",
+    ):
+        assert requirement in requirements.splitlines()
+    assert {dependency.split(">", maxsplit=1)[0] for dependency in project["dependencies"]} == {
+        "mutagen",
+        "Pillow",
+    }
 
 
 
