@@ -254,7 +254,7 @@ jobs:
           import os
           import platform
 
-          from yaatv.cli import (
+          from yaatv.ffmpeg.install import (
               LINUX_FFMPEG_ARCHIVE_SHA256,
               LINUX_FFMPEG_ARCHIVE_URL,
               LINUX_FFPROBE_ARCHIVE_SHA256,

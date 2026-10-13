@@ -1,3 +1,4 @@
+import ast
 import re
 import subprocess
 import sys
@@ -21,6 +22,37 @@ def _readme_format_extensions(readme: str, input_type: str) -> set[str]:
     match = re.search(pattern, readme, re.MULTILINE)
     assert match is not None, f"Missing supported formats row for {input_type}"
     return set(re.findall(r"`(\.[^`]+)`", match.group("extensions")))
+
+
+def test_cli_imports_only_process_boundary_modules() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    source = (repo_root / "yaatv" / "cli.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    allowed_modules = {"yaatv.models", "yaatv.options", "yaatv.workflow"}
+    imported_modules: set[str] = set()
+    imported_members: list[str] = []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported_modules.update(
+                alias.name
+                for alias in node.names
+                if alias.name == "yaatv" or alias.name.startswith("yaatv.")
+            )
+        elif isinstance(node, ast.ImportFrom):
+            if node.level == 1 and node.module is None:
+                imported_modules.update(f"yaatv.{alias.name}" for alias in node.names)
+            elif node.level:
+                imported_modules.add(f"{'.' * node.level}{node.module or ''}")
+                imported_members.append(ast.get_source_segment(source, node) or f"line {node.lineno}")
+            elif node.module == "yaatv":
+                imported_modules.update(f"yaatv.{alias.name}" for alias in node.names)
+            elif node.module is not None and node.module.startswith("yaatv."):
+                imported_modules.add(node.module)
+                imported_members.append(ast.get_source_segment(source, node) or f"line {node.lineno}")
+
+    assert not imported_members, f"Import internal modules by module name in cli.py: {imported_members}"
+    assert imported_modules <= allowed_modules
 
 
 
@@ -211,6 +243,17 @@ def test_release_workflow_does_not_bundle_ffmpeg_tools() -> None:
     assert '"$executable" --install-ffmpeg' in workflow
     assert "XDG_DATA_HOME" in workflow
     assert "LOCALAPPDATA" in workflow
+
+
+def test_release_notes_import_ffmpeg_sources_from_installer_module() -> None:
+    workflow = (Path(__file__).resolve().parents[1] / ".github" / "workflows" / "release.yml").read_text(
+        encoding="utf-8"
+    )
+    release_notes = workflow.split("- name: Prepare FFmpeg release notes", maxsplit=1)[1].split(
+        "\n      - name:", maxsplit=1
+    )[0]
+
+    assert "from yaatv.ffmpeg.install import (" in release_notes
 
 
 

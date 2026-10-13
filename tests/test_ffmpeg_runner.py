@@ -20,7 +20,7 @@ from yaatv.planning import output_size
 
 
 def test_quote_command_uses_posix_quoting(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("yaatv.cli.os.name", "posix")
+    monkeypatch.setattr("yaatv.ffmpeg.runner.os.name", "posix")
 
     assert quote_command(["ffmpeg", "audio files/track's.flac", "a&b", "plain"]) == (
         "ffmpeg 'audio files/track'\"'\"'s.flac' 'a&b' plain"
@@ -33,7 +33,7 @@ def test_quote_command_preserves_windows_quoting(monkeypatch: pytest.MonkeyPatch
         captured.append(command)
         return "windows command"
 
-    monkeypatch.setattr("yaatv.cli.os.name", "nt")
+    monkeypatch.setattr("yaatv.ffmpeg.runner.os.name", "nt")
     monkeypatch.setattr("yaatv.ffmpeg.runner.subprocess.list2cmdline", list2cmdline)
 
     assert quote_command(["ffmpeg", "audio files/track.flac"]) == "windows command"
