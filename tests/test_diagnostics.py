@@ -31,7 +31,31 @@ def test_run_scry_succeeds_with_app_managed_tools(
     assert f"ok    ffmpeg: {app_bin / _executable_name('ffmpeg')}" in output
     assert f"ok    ffprobe: {app_bin / _executable_name('ffprobe')}" in output
     assert "info  ffmpeg version: 7.1.4" in output
-    assert "ok    current directory is writable" in output
+    assert "ok    current working directory is writable" in output
+
+
+def test_run_scry_fails_when_current_working_directory_is_not_writable(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_bin = tmp_path / "bin"
+    app_bin.mkdir()
+    (app_bin / _executable_name("ffmpeg")).write_bytes(b"")
+    (app_bin / _executable_name("ffprobe")).write_bytes(b"")
+    stderr = StringIO()
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("yaatv.diagnostics.app_managed_ffmpeg_bin_dir", lambda: app_bin)
+    monkeypatch.setattr("yaatv.diagnostics.supports_app_managed_ffmpeg_install", lambda: True)
+    monkeypatch.setattr("shutil.which", lambda name: str(app_bin / _executable_name(name)))
+    monkeypatch.setattr(
+        "yaatv.diagnostics.check_tool_health", lambda path: ToolHealth(path=path, state="ok", version="7.1.4")
+    )
+    monkeypatch.setattr("yaatv.diagnostics.current_directory_is_writable", lambda: False)
+
+    assert run_scry(stderr=stderr) == 1
+    output = stderr.getvalue()
+    assert "fail  current working directory is not writable" in output
 
 def test_run_scry_fails_when_required_tools_are_missing(
     monkeypatch: pytest.MonkeyPatch,

@@ -59,9 +59,9 @@ def run_scry(stderr: TextIO = sys.stderr) -> int:
     print("", file=stderr)
     print("Output", file=stderr)
     if current_directory_is_writable():
-        print("ok    current directory is writable", file=stderr)
+        print("ok    current working directory is writable", file=stderr)
     else:
-        print("fail  current directory is not writable", file=stderr)
+        print("fail  current working directory is not writable", file=stderr)
         failure = True
 
     return 1 if failure else 0
