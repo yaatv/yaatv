@@ -1,7 +1,7 @@
 # Pinned direct Python 3.11 build and validation tools for PyPI distributions.
 # This is release tooling only; it is not installed as a yaatv dependency.
 build==1.6.1
-pip==26.2.1
-setuptools==84.0.0
+pip==26.2.2
+setuptools==84.2.1
 twine==7.0.0
 wheel==0.48.0
